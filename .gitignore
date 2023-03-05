@@ -7,3 +7,6 @@ util/__pycache__
 images/inference_plots
 images/samples
 logs
+*.txt
+*.npy
+*.zip
