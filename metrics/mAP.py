@@ -92,6 +92,45 @@ def mAP(predictions, gts, input_size, ap_each_class, tp_iou_threshold=0.5, mode=
     mean_ap = np.mean(ap_all)
     return mean_ap, ap_each_class
 
+def appendTp(predictions, gts, input_size, tp_each_class, gt_each_class, conf_each_class, tp_iou_threshold=0.5, mode="3D"):
+    """
+    Similar to above, but calculates only true positives, so that mAP could be calculated as a separate step
+
+    tp_each_class is a list of numpy arrays containing TP mask of detections obtained so far
+    """
+    gts = gts[gts[..., :6].any(axis=-1) > 0]
+
+    for class_i in range(len(tp_each_class)):
+        ### NOTE: get the prediction per class and sort it ###
+        pred_class = predictions[predictions[..., 7] == class_i]
+        pred_class = pred_class[np.argsort(pred_class[..., 6])[::-1]]
+        ### NOTE: get the ground truth per class ###
+        gt_class = gts[gts[..., 6] == class_i]
+        tp, fp = getTruePositive(pred_class, gt_class, input_size, \
+                                iou_threshold=tp_iou_threshold, mode=mode)
+
+        tp_each_class[class_i] = np.concatenate((tp_each_class[class_i], tp), axis=0)
+        gt_each_class[class_i] += len(gt_class)
+        conf_each_class[class_i] = np.concatenate((conf_each_class[class_i], pred_class[:,6]), axis=0)
+
+    return tp_each_class, gt_each_class, conf_each_class
+
+def mAPFromAccumulated(tp_each_class, gt_each_class, conf_each_class, include_empty=False):
+    ap_all = []
+    for class_i in range(len(tp_each_class)):
+        tp = tp_each_class[int(class_i)]
+
+        if gt_each_class[class_i]:
+            sorted_indices = np.argsort(conf_each_class[class_i])
+            fp = 1. - tp[sorted_indices[::-1]]
+            ap, mrecall, mprecision = computeAP(tp[sorted_indices[::-1]], fp, gt_each_class[class_i])
+            ap_all.append(ap)
+        elif include_empty:
+            ap_all.append(0.)
+
+    mean_ap = np.mean(ap_all)
+    return mean_ap, ap_all
+
 def mAP2D(predictions, gts, input_size, ap_each_class, tp_iou_threshold=0.5, mode="2D"):
     """ Main function for calculating mAP 
     Args:

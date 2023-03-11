@@ -1,6 +1,8 @@
 # Title: RADDet
 # Authors: Ao Zhang, Erlik Nowruzi, Robert Laganiere
 import os
+import sys
+import gc
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"]="0"
 
@@ -8,24 +10,28 @@ import shutil
 import cv2
 import numpy as np
 import tensorflow as tf
+#tf.debugging.set_log_device_placement(True)
 import tensorflow.keras as K
 import matplotlib.pyplot as plt
 
 from glob import glob
 from tqdm import tqdm
+import time
 
 import model.model as M
-from dataset.batch_data_generator import DataGenerator
+from dataset.custom_batch_data_generator import DataGenerator
 import metrics.mAP as mAP
 
 import util.loader as loader
 import util.helper as helper
 import util.drawer as drawer
+import psutil
 
 
 def main():
     ### NOTE: GPU manipulation, you may can print this out if necessary ###
     gpus = tf.config.experimental.list_physical_devices('GPU')
+    tf.debugging.enable_check_numerics()
     if len(gpus) > 0:
         for gpu in gpus:
             tf.config.experimental.set_memory_growth(gpu, True)
@@ -76,11 +82,15 @@ def main():
     def train_step(data, label):
         """ define train step for training """
         with tf.GradientTape() as tape:
+            timeBeforeModel = time.time()
             feature = model(data)
+            timeBeforeDecoding = time.time()
             pred_raw, pred = model.decodeYolo(feature)
+            timeBeforeLoss = time.time()
             total_loss, box_loss, conf_loss, category_loss = \
                 model.loss(pred_raw, pred, label, raw_boxes[..., :6])
             gradients = tape.gradient(total_loss, model.trainable_variables)
+
             optimizer.apply_gradients(zip(gradients, model.trainable_variables))
             ### NOTE: writing summary data ###
             with writer.as_default():
@@ -90,11 +100,33 @@ def main():
                 tf.summary.scalar("loss/conf_loss", conf_loss, step=global_steps)
                 tf.summary.scalar("loss/category_loss", category_loss, step=global_steps)
             writer.flush()
+            timeAfterAll = time.time()
+            modelDelta = timeBeforeDecoding - timeBeforeModel
+            decodingDelta = timeBeforeLoss - timeBeforeDecoding
+            remainingDelta = timeAfterAll - timeBeforeLoss
+            print(f"Timings: model {modelDelta}, decoding {decodingDelta}, the rest {remainingDelta}")
         return total_loss, box_loss, conf_loss, category_loss
- 
+    
+    @tf.function
+    def pred_only(data):
+        feature = model(data, training=False)
+        
+        pred_raw, pred = model.decodeYolo(feature)
+
+        total_loss, box_loss, conf_loss, category_loss = \
+            model.loss(pred_raw, pred, label, raw_boxes[..., :6])
+
+        return pred_raw, pred
+
+    @tf.function
+    def calc_loss_only(pred_raw, pred, label, raw_box):
+        return model.loss(pred_raw, pred, label, raw_box)
+
+
     ### NOTE: define validate step ###
-    # @tf.function
+    #@tf.function
     def validate_step():
+        print(f"Validating on {data_generator.total_validate_batches} batches")
         mean_ap_test = 0.0
         ap_all_class_test = []
         ap_all_class = []
@@ -102,18 +134,31 @@ def main():
         box_losstest = []
         conf_losstest = []
         category_losstest = []
+
+        tp_each_class = []
+        gt_counts = []
+        confidences_each_class = []
         for class_id in range(num_classes):
             ap_all_class.append([])
+            tp_each_class.append(np.zeros(0))
+            confidences_each_class.append(np.zeros(0))
+            gt_counts.append(0)
+        someIndex = 0
         for data, label, raw_boxes in validate_generator.\
             batch(data_generator.batch_size).take(data_generator.total_validate_batches):
-            feature = model(data)
-            pred_raw, pred = model.decodeYolo(feature)
-            total_loss_b, box_loss_b, conf_loss_b, category_loss_b = \
-                model.loss(pred_raw, pred, label, raw_boxes[..., :6])
+            someIndex += 1
+
+            pred_raw, pred = pred_only(data)
+
+            '''
+            total_loss_b, box_loss_b, conf_loss_b, category_loss_b = calc_loss_only(pred_raw, pred, label, raw_boxes[..., :6])
+            
             total_losstest.append(total_loss_b)
             box_losstest.append(box_loss_b)
             conf_losstest.append(conf_loss_b)
             category_losstest.append(category_loss_b)
+            '''
+            
             for batch_id in range(raw_boxes.shape[0]):
                 raw_boxes_frame = raw_boxes[batch_id]
                 pred_frame = pred[batch_id]
@@ -124,7 +169,19 @@ def main():
                 mean_ap, ap_all_class = mAP.mAP(nms_pred, raw_boxes_frame.numpy(), \
                                         config_model["input_shape"], ap_all_class, \
                                         tp_iou_threshold=config_model["mAP_iou3d_threshold"])
-                mean_ap_test += mean_ap
+                tp_each_class, gt_counts, confidences_each_class = mAP.appendTp(nms_pred, raw_boxes_frame.numpy(), \
+                                        config_model["input_shape"], tp_each_class, gt_counts, confidences_each_class, \
+                                        tp_iou_threshold=config_model["mAP_iou3d_threshold"])
+                if not np.isnan(mean_ap):
+                    mean_ap_test += mean_ap
+
+            if not (someIndex % 10):
+                print(f"While validating processed {someIndex}")
+
+        mean_ap_new, ap_all_class_new = mAP.mAPFromAccumulated(tp_each_class, gt_counts, confidences_each_class)
+        #tf.print("All true positives:")
+        #tf.print(tp_each_class)
+
         for ap_class_i in ap_all_class:
             if len(ap_class_i) == 0:
                 class_ap = 0.
@@ -133,15 +190,27 @@ def main():
             ap_all_class_test.append(class_ap)
         mean_ap_test /= data_generator.batch_size*data_generator.total_validate_batches
         tf.print("-------> ap: %.6f"%(mean_ap_test))
+        tf.print("-------> ap person: %.6f"%(ap_all_class_test[0]))
+        tf.print("-------> ap bicycle: %.6f"%(ap_all_class_test[1]))
+
+        tf.print("-------> ap (new): %.6f"%(mean_ap_new))
+        tf.print("-------> ap person (new): %.6f"%(ap_all_class_new[0]))
+        if len(ap_all_class_new) > 1:
+            tf.print("-------> ap bicycle (new): %.6f"%(ap_all_class_new[1]))
+
+        with open("val_results_" + "b_" + str(config_train["batch_size"]) + \
+            "lr_" + str(config_train["learningrate_init"]) + ".txt", 'a') as f:
+            f.write(f"{float(global_steps)}, {mean_ap_test}, {mean_ap_new},\n")
         ### writing summary data ###
+        '''
         with writer.as_default():
             tf.summary.scalar("ap/ap_all", mean_ap_test, step=global_steps)
             tf.summary.scalar("ap/ap_person", ap_all_class_test[0], step=global_steps)
-            tf.summary.scalar("ap/ap_bicycle", ap_all_class_test[1], step=global_steps)
-            tf.summary.scalar("ap/ap_car", ap_all_class_test[2], step=global_steps)
-            tf.summary.scalar("ap/ap_motorcycle", ap_all_class_test[3], step=global_steps)
-            tf.summary.scalar("ap/ap_bus", ap_all_class_test[4], step=global_steps)
-            tf.summary.scalar("ap/ap_truck", ap_all_class_test[5], step=global_steps)
+            #tf.summary.scalar("ap/ap_bicycle", ap_all_class_test[1], step=global_steps)
+            #tf.summary.scalar("ap/ap_car", ap_all_class_test[2], step=global_steps)
+            #tf.summary.scalar("ap/ap_motorcycle", ap_all_class_test[3], step=global_steps)
+            #tf.summary.scalar("ap/ap_bus", ap_all_class_test[4], step=global_steps)
+            #tf.summary.scalar("ap/ap_truck", ap_all_class_test[5], step=global_steps)
             ### NOTE: validate loss ###
             tf.summary.scalar("validate_loss/total_loss", \
                     np.mean(total_losstest), step=global_steps)
@@ -152,6 +221,7 @@ def main():
             tf.summary.scalar("validate_loss/category_loss", \
                     np.mean(category_losstest), step=global_steps)
         writer.flush()
+        '''
 
     ###---------------------------- TRAIN SET -------------------------###
     for data, label, raw_boxes in train_generator.repeat().\
@@ -161,6 +231,7 @@ def main():
                 box_loss: %4.2f, conf_loss: %4.2f, category_loss: %4.2f" % \
                 (global_steps, optimizer.lr.numpy(), total_loss, box_loss, \
                 conf_loss, category_loss))
+        #custom_step()
         ### NOTE: learning rate decay ###
         global_steps.assign_add(1)
         if global_steps < config_train["warmup_steps"]:
@@ -180,10 +251,15 @@ def main():
         ###---------------------------- VALIDATE SET -------------------------###
         if global_steps.numpy() >= config_train["validate_start_steps"] and \
                 global_steps.numpy() % config_train["validate_gap"] == 0:
+            print('memory usesd: ' + str(psutil.virtual_memory().used // 1e6))
+            beforeValidation = time.time()
             validate_step()
+            #custom_step()
+            beforeSaving = time.time()
             save_path = manager.save()
+            afterSaving = time.time()
+            print(f"Time spent on validation step {beforeSaving - beforeValidation}, on saving the checkopoint {afterSaving - beforeSaving}")
             print("Saved checkpoint for step {}: {}".format(int(ckpt.step), save_path))
-
 
 if __name__ == "__main__":
     main()

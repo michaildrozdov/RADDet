@@ -16,7 +16,7 @@ def extractYoloInfo(yolo_output_format_data):
         
 def yolo1Loss(pred_box, gt_box, gt_conf, input_size, if_box_loss_scale=True):
     """ loss function for box regression \cite{YOLOV1} """
-    assert pred_box.shape == gt_box.shape
+    #assert pred_box.shape == gt_box.shape
     if if_box_loss_scale:
         scale = 2.0 - 1.0 * gt_box[..., 3:4] * gt_box[..., 4:5] * gt_box[..., 5:6] /\
                                     (input_size[0] * input_size[1] * input_size[2])
@@ -37,7 +37,7 @@ def focalLoss(raw_conf, pred_conf, gt_conf, pred_box, raw_boxes, input_size, \
 
     gt_conf_negative = (1.0 - gt_conf) * tf.cast(max_iou < iou_loss_threshold, tf.float32)
     conf_focal = tf.pow(gt_conf - pred_conf, 2)
-    alpha = 0.01
+    alpha = 0.09
 
     ###### TODO: think, whether we have to seperate logits with decoded outputs #######
     focal_loss = conf_focal * (\
@@ -63,12 +63,12 @@ def lossYolo(pred_raw, pred, label, raw_boxes, input_size, focal_loss_iou_thresh
                                     with shape [None, r, a, d, num_anchors, 7+num_class]
         gt_stages           ->      3 different ground truth stages 
                                     with shape [None, r, a, d, num_anchors, 7+num_class]"""
-    assert len(raw_boxes.shape) == 3
+    #assert len(raw_boxes.shape) == 3
     input_size = tf.cast(input_size, tf.float32)
-    assert pred_raw.shape == label.shape
-    assert pred_raw.shape[0] == len(raw_boxes)
-    assert pred.shape == label.shape
-    assert pred.shape[0] == len(raw_boxes)
+    #assert pred_raw.shape == label.shape
+    #assert pred_raw.shape[0] == len(raw_boxes)
+    #assert pred.shape == label.shape
+    #assert pred.shape[0] == len(raw_boxes)
     raw_box, raw_conf, raw_category = extractYoloInfo(pred_raw)
     pred_box, pred_conf, pred_category = extractYoloInfo(pred)
     gt_box, gt_conf, gt_category = extractYoloInfo(label)
