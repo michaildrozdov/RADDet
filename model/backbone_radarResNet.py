@@ -83,9 +83,10 @@ def radarResNet3D(x, ):
     ##### Parameters setup #####
     conv = x
 
-    block_repeat_times = [2, 4, 8, 16]
+    #block_repeat_times = [2, 4, 8, 16]
+    block_repeat_times = [2, 2, 4, 8]
     channels_upsample = [False, False, True, True]
-    feature_mp_downsample = [True, True, True, True]
+    feature_mp_downsample = [True, True, False, False]
 
     feature_stages = []
     ##### repeated residual blocks ######

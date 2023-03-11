@@ -67,7 +67,7 @@ def convolution1D(input_tensor, filters, kernel_size, strides, padding, \
         kernel_regularizer=kernel_regularizer, 
         bias_regularizer=bias_regularizer,)(input_tensor)
 
-    if bn: conv_output = BatchNormalization()(conv_output)
+    if bn: conv_output = K.layers.BatchNormalization()(conv_output)
  
     if use_activation:
         if activation == "relu":
@@ -114,7 +114,7 @@ def convolution2D(input_tensor, filters, kernel_size, strides, padding, \
         bias_initializer='zeros', kernel_regularizer=kernel_regularizer, 
         bias_regularizer=bias_regularizer,)(input_tensor)
 
-    if bn: conv_output = BatchNormalization()(conv_output)
+    if bn: conv_output = K.layers.BatchNormalization()(conv_output)
     
     if use_activation:
         if activation == "relu":
@@ -151,7 +151,7 @@ def convolution3D(input_tensor, filters, kernel_size, strides, padding, \
         bias_initializer='zeros', kernel_regularizer=None, bias_regularizer=None, 
         )(input_tensor)
 
-    if bn: conv_output = BatchNormalization()(conv_output)
+    if bn: conv_output = K.layers.BatchNormalization()(conv_output)
     
     if use_activation:
         if activation == "relu":
@@ -332,7 +332,7 @@ def convolution2Don3D(input_tensor, filters, kernel_size, strides, padding, \
     conv_layer = customizeConv(kernel_shape, strides_full, padding)
     conv_output = conv_layer(input_tensor)
 
-    if bn: conv_output = BatchNormalization()(conv_output)
+    if bn: conv_output = K.layers.BatchNormalization()(conv_output)
     
     if activation == "relu":
         conv_output = tf.nn.relu(conv_output)
@@ -371,7 +371,7 @@ def convolution1Don3D(input_tensor, filters, kernel_size, strides, padding, \
     conv_layer = customizeConv(kernel_shape, strides_full, padding)
     conv_output = conv_layer(input_tensor)
 
-    if bn: conv_output = BatchNormalization()(conv_output)
+    if bn: conv_output = K.layers.BatchNormalization()(conv_output)
     
     if activation == "relu":
         conv_output = tf.nn.relu(conv_output)

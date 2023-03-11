@@ -39,6 +39,14 @@ def getLog(target_array, scalar=1., log_10=True):
         return scalar * np.log10(target_array + 1.)
     else:
         return target_array
+        
+def getMovingProcessed(target_array):
+    target_array = np.abs(target_array)
+    stationaryIndex = int(target_array.shape[2] / 2)
+    target_array[:,:,stationaryIndex] = (target_array[:,:,stationaryIndex - 1] \
+        + target_array[:,:,stationaryIndex + 1]) / 2
+
+    return target_array
 
 def getSumDim(target_array, target_axis):
     """ sum up one dimension """
@@ -100,6 +108,22 @@ def toCartesianMask(RA_mask, radar_config, gapfill_interval_num=1):
                     new_j = int(np.round((point_zx[1]+50)/radar_config["range_resolution"])-1)
                     output_mask[new_i,new_j] = RA_mask[i, j] 
                 point_angle_previous = point_angle_current
+    return output_mask
+    
+def toCartesianMaskCustom(RA_mask, radar_config):
+    """ transfer RA mask to Cartesian mask for plotting """
+    output_mask = np.ones([RA_mask.shape[0], RA_mask.shape[0]*2]) * np.amin(RA_mask)
+    point_angle_previous = None
+    maxSinAngle = radar_config["angular_resolution"] * RA_mask.shape[1] / 2
+    for i in range(RA_mask.shape[0]):
+        for j in range(1, 2 * RA_mask.shape[0]):
+            dist = int(np.sqrt((i+1) * (i+1) + (j - RA_mask.shape[0]) * (j - RA_mask.shape[0])) - 1)
+            angle = np.arctan((j - RA_mask.shape[0]) / (i + 1))
+            sinAngle = np.sin(angle)
+            if (np.abs(sinAngle) < maxSinAngle and dist >= 0 and dist < RA_mask.shape[0]):
+                angleIndex = int((maxSinAngle + sinAngle) / radar_config["angular_resolution"])
+                output_mask[RA_mask.shape[0] - i - 1,j] = RA_mask[dist, angleIndex]
+                #output_mask[i,j] = RA_mask[dist, angleIndex]
     return output_mask
 
 def GaussianModel(pcl):
