@@ -1,5 +1,5 @@
 [submodule "position-from-aruco-video"]
-	path = position-from-aruco-video
+	path = PositionFromArucoVideo
 	url = https://gitlab.com/michail.drozdov/position-from-aruco-video.git
 [submodule "neuralnet"]
 	path = neuralnet

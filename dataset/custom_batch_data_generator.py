@@ -11,8 +11,7 @@ import util.helper as helper
 import random
 import time
 
-from dataset.RadarDataLoader import RadarDataLoader
-from dataset.RawDataLoader import RawDataLoader
+from PositionFromArucoVideo.PositionFromArucoVideo.RadarDataLoader import RadarDataLoader
 
 class DataGenerator:
     def __init__(self, config_data, config_train, config_model, headoutput_shape, \
