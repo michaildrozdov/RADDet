@@ -119,7 +119,7 @@ def convolution2D(input_tensor, filters, kernel_size, strides, padding,
 
     if use_activation:
         if activation == "relu":
-            conv_output = tf.nn.relu(conv_output)
+            conv_output = tf.keras.layers.Activation('relu')(conv_output)
         elif activation == "mish":
             conv_output = mishActivation(conv_output)
         else:

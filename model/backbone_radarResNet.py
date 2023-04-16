@@ -21,7 +21,7 @@ def basicResidualBlock(x, channel_expansion, strides=(1, 1), use_bias=False):
     else:
         conv_shortcut = x
     ### combine all together to generate residual feature maps ###
-    conv += conv_shortcut
+    conv = tf.keras.layers.Add()([conv, conv_shortcut])
     return conv
 
 
@@ -44,7 +44,7 @@ def bottleneckResidualBlock(x, channel_expansion, strides=(1, 1), use_bias=False
     else:
         conv_shortcut = x
     ### combine all together to generate residual feature maps ###
-    conv += conv_shortcut
+    conv = tf.keras.layers.Add()([conv, conv_shortcut])
     return conv
 
 
