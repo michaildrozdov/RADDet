@@ -15,7 +15,9 @@ from skimage.measure import find_contours
 import util.helper as helper
 
 ################ opencv realted drawing  ################
-def RandomColors(N, bright=True): 
+
+
+def RandomColors(N, bright=True):
     """ Define colors for all categories. """
     brightness = 1.0 if bright else 0.7
     hsv = [(i / N, 1, brightness) for i in range(N)]
@@ -24,16 +26,19 @@ def RandomColors(N, bright=True):
     random.shuffle(colors)
     return colors
 
+
 def applyMask(image, mask, color, alpha=0.5):
     """ Apply the given mask to the image. """
     for c in range(3):
         image[:, :, c] = np.where(mask == 1,
-                                 image[:, :, c] *
-                                (1 - alpha) + alpha * color[c] * 255,
-                                 image[:, :, c])
+                                  image[:, :, c] *
+                                  (1 - alpha) + alpha * color[c] * 255,
+                                  image[:, :, c])
     return image
 
 ################ Matplotlib.pyplot plotting ################
+
+
 def prepareFigure(num_axes, figsize=None):
     """ define figures and subplots """
     assert num_axes <= 6
@@ -71,12 +76,14 @@ def prepareFigure(num_axes, figsize=None):
         ax6 = fig.add_subplot(236)
         return fig, [ax1, ax2, ax3, ax4, ax5, ax6]
 
+
 def clearAxes(ax_list):
     """ clear axes for continuous drawing """
-    assert len(ax_list) >=1 
+    assert len(ax_list) >= 1
     plt.cla()
     for ax_i in ax_list:
         ax_i.clear()
+
 
 def drawContour(mask, axe, color):
     """ Draw mask contour onto the image. """
@@ -88,9 +95,10 @@ def drawContour(mask, axe, color):
         p = Polygon(verts, facecolor="none", edgecolor=color)
         axe.add_patch(p)
 
-def linePlot(x_list, y_list, ax, color_list=None, label_list=None, \
-            xlimits=None, ylimits=None, title=None, \
-            xlabel=None, ylabel=None, linestyle="solid", linewidth=2):
+
+def linePlot(x_list, y_list, ax, color_list=None, label_list=None,
+             xlimits=None, ylimits=None, title=None,
+             xlabel=None, ylabel=None, linestyle="solid", linewidth=2):
     """ Plot lines using x y values """
     if color_list == None:
         color_list = ["blue" for _ in range(len(y_list))]
@@ -100,14 +108,14 @@ def linePlot(x_list, y_list, ax, color_list=None, label_list=None, \
         for i in range(len(x_list)):
             x, y, label, color = x_list[i], y_list[i], label_list[i], color_list[i]
             assert len(x) == len(y)
-            ax.plot(x, y, color=color, label=label, \
+            ax.plot(x, y, color=color, label=label,
                     linestyle=linestyle, linewidth=linewidth)
         if len(y_list) > 1:
             ax.legend()
     else:
         x, y, label, color = x_list[0], y_list[0], None, color_list[0]
         assert len(x) == len(y)
-        ax.plot(x, y, color=color, label=label, \
+        ax.plot(x, y, color=color, label=label,
                 linestyle=linestyle, linewidth=linewidth)
     if xlimits is not None:
         ax.set_xlim(xlimits)
@@ -120,11 +128,13 @@ def linePlot(x_list, y_list, ax, color_list=None, label_list=None, \
     if title is not None:
         ax.set_title(title)
 
-def barChart(x, y, ax, title=None, xlabel=None, ylabel=None, color=None, \
-            align="center", width=0.8, xtricks=None, ytricks=None, \
-            vertical=True, show_numbers=False):
+
+def barChart(x, y, ax, title=None, xlabel=None, ylabel=None, color=None,
+             align="center", width=0.8, xtricks=None, ytricks=None,
+             vertical=True, show_numbers=False):
     """ Plot lines using x y values """
-    if color == None: color="blue"
+    if color == None:
+        color = "blue"
     if vertical:
         ax.bar(x, y, color=color, width=width, align=align)
     else:
@@ -155,8 +165,9 @@ def barChart(x, y, ax, title=None, xlabel=None, ylabel=None, color=None, \
                 else:
                     ax.text(1.05*v, i+0, str(v), color='black', fontweight='bold')
 
-def histChart(x, bins, range, ax, title=None, xlabel=None, ylabel=None, \
-                color=None, xticks=None, xticklabels=None):
+
+def histChart(x, bins, range, ax, title=None, xlabel=None, ylabel=None,
+              color=None, xticks=None, xticklabels=None):
     """ Plot histogram using matplotlib """
     ax.hist(x, bins=bins, range=range, color=color)
     if xlabel is not None:
@@ -169,6 +180,7 @@ def histChart(x, bins, range, ax, title=None, xlabel=None, ylabel=None, \
         ax.set_xticks(xticks)
     if xticklabels is not None:
         ax.set_xticklabels(xticklabels)
+
 
 def pclScatter(pcl_list, color_list, label_list, ax, xlimits, ylimits, title):
     """ scatter point cloud """
@@ -191,6 +203,8 @@ def pclScatter(pcl_list, color_list, label_list, ax, xlimits, ylimits, title):
         ax.set_title(title)
 
 # TODO: ranges should be taken from the config
+
+
 def imgPlot(img, ax, cmap, alpha, title=None):
     """ image plotting (customized when plotting RAD) """
     fontSz = 16
@@ -205,8 +219,8 @@ def imgPlot(img, ax, cmap, alpha, title=None):
         ax.set_xticklabels([-2.2, 0, 2.2])
         ax.set_yticks([0, 64, 128, 192, 255])
         ax.set_yticklabels([0, 4.8, 9.6, 14.4, 19.2])
-        ax.set_xlabel("velocity (m/s)", fontsize = fontSz)
-        ax.set_ylabel("range (m)", fontsize = fontSz)
+        ax.set_xlabel("velocity (m/s)", fontsize=fontSz)
+        ax.set_ylabel("range (m)", fontsize=fontSz)
     elif title == "RA":
         title = "Range-Azimuth"
         #ax.set_xticks([0, 64, 128, 192, 255])
@@ -219,29 +233,32 @@ def imgPlot(img, ax, cmap, alpha, title=None):
         #ax.set_xticklabels([-45.45, -22.72, 0, 22.72, 45.45])
         ax.set_yticks([0, 64, 128, 192, 255])
         ax.set_yticklabels([0, 4.8, 9.6, 14.4, 19.2])
-        ax.set_xlabel("angle (degrees)", fontsize = fontSz)
-        ax.set_ylabel("range (m)", fontsize = fontSz)
+        ax.set_xlabel("angle (degrees)", fontsize=fontSz)
+        ax.set_ylabel("range (m)", fontsize=fontSz)
     elif title == "Cartesian":
         ax.set_xticks([0, 128, 256, 384, 512])
         ax.set_xticklabels([-19.2, -9.6, 0, 9.6, 19.2])
         ax.set_yticks([0, 64, 128, 192, 255])
         ax.set_yticklabels([0, 4.8, 9.6, 14.4, 19.2])
-        ax.set_xlabel("x (m)", fontsize = fontSz)
-        ax.set_ylabel("z (m)", fontsize = fontSz)
+        ax.set_xlabel("x (m)", fontsize=fontSz)
+        ax.set_ylabel("z (m)", fontsize=fontSz)
     else:
         ax.axis('off')
     if title is not None:
-        ax.set_title(title, fontsize = fontSz)
+        ax.set_title(title, fontsize=fontSz)
+
 
 def keepDrawing(fig, time_duration):
     """ keep drawing frames """
     fig.canvas.draw()
     plt.pause(time_duration)
 
+
 def saveFigure(save_dir, name):
     """ save the figure """
     print(f"Will save to {os.path.join(save_dir, name)}")
     plt.savefig(os.path.join(save_dir, name))
+
 
 def mask2BoxOrEllipse(mask, mode="box"):
     """ Find bounding box from mask. """
@@ -257,8 +274,8 @@ def mask2BoxOrEllipse(mask, mode="box"):
         x_max = np.amax(current_cluster[:, 0])
         y_min = np.amin(current_cluster[:, 1])
         y_max = np.amax(current_cluster[:, 1])
-        output.append([(x_min+x_max)/2, (y_min+y_max)/2, \
-                        x_max-x_min+1, y_max-y_min+1])
+        output.append([(x_min+x_max)/2, (y_min+y_max)/2,
+                       x_max-x_min+1, y_max-y_min+1])
         output = np.array(output)
         return output
     elif mode == "ellipse":
@@ -268,6 +285,7 @@ def mask2BoxOrEllipse(mask, mode="box"):
     else:
         raise ValueError("Wrong input parameter ------ mode")
 
+
 def getEllipse(color, means, covariances, scale_factor=1):
     """ Draw 2D Gaussian Ellipse. """
     sign = np.sign(means[0] / means[1])
@@ -275,17 +293,18 @@ def getEllipse(color, means, covariances, scale_factor=1):
 
     eigen_root_x = np.sqrt(eigen[0]) * scale_factor
     eigen_root_y = np.sqrt(eigen[1]) * scale_factor
-    theta = np.degrees(np.arctan2(*eigen_vec[:,0][::-1]))
+    theta = np.degrees(np.arctan2(*eigen_vec[:, 0][::-1]))
 
-    ell = Ellipse(xy = (means[0], means[1]), width = eigen_root_x,
-                height = eigen_root_y, angle = theta, \
-                facecolor = 'none', edgecolor = color)
+    ell = Ellipse(xy=(means[0], means[1]), width=eigen_root_x,
+                  height=eigen_root_y, angle=theta,
+                  facecolor='none', edgecolor=color)
     return ell
 
-def drawBoxOrEllipse(inputs, class_name, axe, color, x_shape=0, mode="box", \
-                    if_facecolor=False, confidence = -1.0):
+
+def drawBoxOrEllipse(inputs, class_name, axe, color, x_shape=0, mode="box",
+                     if_facecolor=False, confidence=-1.0):
     """ Draw bounding box onto the image. """
-    if if_facecolor: 
+    if if_facecolor:
         facecolor = color
     else:
         facecolor = "none"
@@ -297,35 +316,35 @@ def drawBoxOrEllipse(inputs, class_name, axe, color, x_shape=0, mode="box", \
             if x1 < 0:
                 x1 += x_shape
                 r = Rectangle((x1, y1), x_shape - x1, y2 - y1, linewidth=1.5,
-                            alpha=0.5, linestyle="dashed", edgecolor=color,
-                            facecolor=facecolor)
+                              alpha=0.5, linestyle="dashed", edgecolor=color,
+                              facecolor=facecolor)
                 axe.add_patch(r)
                 r = Rectangle((0, y1), x2 - 0, y2 - y1, linewidth=1.5,
-                            alpha=0.5, linestyle="dashed", edgecolor=color,
-                            facecolor=facecolor)
+                              alpha=0.5, linestyle="dashed", edgecolor=color,
+                              facecolor=facecolor)
                 axe.add_patch(r)
             elif x2 >= x_shape:
                 x2 -= x_shape
                 r = Rectangle((x1, y1), x_shape - x1, y2 - y1, linewidth=1.5,
-                            alpha=0.5, linestyle="dashed", edgecolor=color,
-                            facecolor=facecolor)
+                              alpha=0.5, linestyle="dashed", edgecolor=color,
+                              facecolor=facecolor)
                 axe.add_patch(r)
                 r = Rectangle((0, y1), x2 - 0, y2 - y1, linewidth=1.5,
-                            alpha=0.5, linestyle="dashed", edgecolor=color,
-                            facecolor=facecolor)
+                              alpha=0.5, linestyle="dashed", edgecolor=color,
+                              facecolor=facecolor)
                 axe.add_patch(r)
             else:
                 r = Rectangle((x1, y1), x2 - x1, y2 - y1, linewidth=1.5,
-                            alpha=0.5, linestyle="dashed", edgecolor=color,
-                            facecolor=facecolor)
+                              alpha=0.5, linestyle="dashed", edgecolor=color,
+                              facecolor=facecolor)
                 axe.add_patch(r)
         localName = class_name
         if confidence >= 0.0:
             localName = f"{localName} {confidence:.2f}"
         axe.text(x1+1, y1-3, localName, size=10, verticalalignment='baseline',
-                color='w', backgroundcolor="none",
-                bbox={'facecolor': color, 'alpha': 0.5,
-                    'pad': 2, 'edgecolor': 'none'})
+                 color='w', backgroundcolor="none",
+                 bbox={'facecolor': color, 'alpha': 0.5,
+                       'pad': 2, 'edgecolor': 'none'})
     elif mode == "ellipse":
         for e in inputs:
             mean, cov = e[0], e[1]
@@ -335,60 +354,60 @@ def drawBoxOrEllipse(inputs, class_name, axe, color, x_shape=0, mode="box", \
             ell = getEllipse(color, mean, cov, scale_factor=5)
             axe.add_patch(ell)
         axe.text(x1, y1, class_name, size=5, verticalalignment='center',
-                color='w', backgroundcolor="none",
-                bbox={'facecolor': color, 'alpha': 0.5,
-                        'pad': 2, 'edgecolor': 'none'})
+                 color='w', backgroundcolor="none",
+                 bbox={'facecolor': color, 'alpha': 0.5,
+                       'pad': 2, 'edgecolor': 'none'})
     else:
         raise ValueError("Wrong input parameter ------ mode")
 
 
-def drawRadarInstances(RD_img, RA_img, RA_cart_img, radar_instances, radar_config, \
-                        all_classes, colors, axes):
+def drawRadarInstances(RD_img, RA_img, RA_cart_img, radar_instances, radar_config,
+                       all_classes, colors, axes):
     """ draw all the masks, boxes on the input images """
     assert len(radar_instances["masks"]) == len(radar_instances["classes"])
     assert len(axes) == 3
     for i in range(len(radar_instances["classes"])):
         mask = radar_instances["masks"][i]
         bbox3d = radar_instances["boxes"][i]
-        if len(mask[mask>0]) > 0:
+        if len(mask[mask > 0]) > 0:
             cls = radar_instances["classes"][i]
             color = colors[all_classes.index(cls)]
             mask_RD = np.where(helper.getSumDim(mask, 1) >= 1, 1, 0)
             mask_RA = np.where(helper.getSumDim(mask, -1) >= 1, 1, 0)
-            mask_cart = np.where(helper.toCartesianMask(mask_RA, radar_config)>0., 1., 0.)
+            mask_cart = np.where(helper.toCartesianMask(mask_RA, radar_config) > 0., 1., 0.)
             applyMask(RD_img, mask_RD, color)
             applyMask(RA_img, mask_RA, color)
             applyMask(RA_cart_img, mask_cart, color)
-            ### draw mask contour
+            # draw mask contour
             drawContour(mask_RD, axes[0], color)
             drawContour(mask_RA, axes[1], color)
             drawContour(mask_cart, axes[2], color)
-            ### draw box
-            mode = "box" # either "box" or "ellipse"
-            ### get the boxes from masks
-            ### if in the future, boxes can be read directly from gt, 
-            ### comment these lines
+            # draw box
+            mode = "box"  # either "box" or "ellipse"
+            # get the boxes from masks
+            # if in the future, boxes can be read directly from gt,
+            # comment these lines
             # RD_box = mask2BoxOrEllipse(mask_RD, mode)
             # RA_box = mask2BoxOrEllipse(mask_RA, mode)
-            ### boxes information added in the ground truth dictionary
+            # boxes information added in the ground truth dictionary
             RD_box = np.array([[bbox3d[0], bbox3d[2], bbox3d[3], bbox3d[5]]])
             RA_box = np.array([[bbox3d[0], bbox3d[1], bbox3d[3], bbox3d[4]]])
             RA_cart_box = mask2BoxOrEllipse(mask_cart, mode)
-            ### draw boxes
-            drawBoxOrEllipse(RD_box, cls, axes[0], color, \
-                            x_shape=RD_img.shape[1], mode=mode)
-            drawBoxOrEllipse(RA_box, cls, axes[1], color, \
-                            x_shape=RA_img.shape[1], mode=mode)
-            drawBoxOrEllipse(cart_box, cls, axes[2], color, \
-                            x_shape=RA_cart_img.shape[1], mode=mode)
+            # draw boxes
+            drawBoxOrEllipse(RD_box, cls, axes[0], color,
+                             x_shape=RD_img.shape[1], mode=mode)
+            drawBoxOrEllipse(RA_box, cls, axes[1], color,
+                             x_shape=RA_img.shape[1], mode=mode)
+            drawBoxOrEllipse(RA_cart_box, cls, axes[2], color,
+                             x_shape=RA_cart_img.shape[1], mode=mode)
 
-    imgPlot(RD_img, axes[0], None, 1, "RD") 
-    imgPlot(RA_img, axes[1], None, 1, "RA") 
-    imgPlot(RA_cart_img, axes[2], None, 1, "RA mask in cartesian") 
+    imgPlot(RD_img, axes[0], None, 1, "RD")
+    imgPlot(RA_img, axes[1], None, 1, "RA")
+    imgPlot(RA_cart_img, axes[2], None, 1, "RA mask in cartesian")
 
 
-def drawRadarBoxes(stereo_left_image, RD_img, RA_img, RA_cart_img, \
-                    radar_instances, all_classes, colors, axes):
+def drawRadarBoxes(stereo_left_image, RD_img, RA_img, RA_cart_img,
+                   radar_instances, all_classes, colors, axes):
     """ draw only boxes on the input images """
     assert len(radar_instances["boxes"]) == len(radar_instances["classes"])
     assert len(axes) == 4
@@ -397,27 +416,28 @@ def drawRadarBoxes(stereo_left_image, RD_img, RA_img, RA_cart_img, \
         cls = radar_instances["classes"][i]
         cart_box = radar_instances["cart_boxes"][i]
         color = colors[all_classes.index(cls)]
-        ### draw box
-        mode = "box" # either "box" or "ellipse"
-        ### boxes information added in the ground truth dictionary
+        # draw box
+        mode = "box"  # either "box" or "ellipse"
+        # boxes information added in the ground truth dictionary
         RD_box = np.array([[bbox3d[0], bbox3d[2], bbox3d[3], bbox3d[5]]])
         RA_box = np.array([[bbox3d[0], bbox3d[1], bbox3d[3], bbox3d[4]]])
         cart_box = np.array([cart_box])
-        ### draw boxes
-        drawBoxOrEllipse(RD_box, cls, axes[1], color, \
-                        x_shape=RD_img.shape[1], mode=mode)
-        drawBoxOrEllipse(RA_box, cls, axes[2], color, \
-                        x_shape=RA_img.shape[1], mode=mode)
-        drawBoxOrEllipse(cart_box, cls, axes[3], color, \
-                        x_shape=RA_cart_img.shape[1], mode=mode)
+        # draw boxes
+        drawBoxOrEllipse(RD_box, cls, axes[1], color,
+                         x_shape=RD_img.shape[1], mode=mode)
+        drawBoxOrEllipse(RA_box, cls, axes[2], color,
+                         x_shape=RA_img.shape[1], mode=mode)
+        drawBoxOrEllipse(cart_box, cls, axes[3], color,
+                         x_shape=RA_cart_img.shape[1], mode=mode)
 
     imgPlot(stereo_left_image, axes[0], None, None, "camera")
-    imgPlot(RD_img, axes[1], None, 1, "RD") 
-    imgPlot(RA_img, axes[2], None, 1, "RA") 
+    imgPlot(RD_img, axes[1], None, 1, "RD")
+    imgPlot(RA_img, axes[2], None, 1, "RA")
     imgPlot(RA_cart_img, axes[3], None, 1, "Cartesian")
-    
-def drawRadarBoxesCustom(stereo_left_image, RD_img, RA_img, RA_cart_img, \
-                    radar_instances, all_classes, colors, axes):
+
+
+def drawRadarBoxesCustom(stereo_left_image, RD_img, RA_img, RA_cart_img,
+                         radar_instances, all_classes, colors, axes):
     """ draw only boxes on the input images """
     assert len(radar_instances["boxes"]) == len(radar_instances["classes"])
     assert len(axes) == 4
@@ -426,28 +446,29 @@ def drawRadarBoxesCustom(stereo_left_image, RD_img, RA_img, RA_cart_img, \
         cls = radar_instances["classes"][i]
         #cart_box = radar_instances["cart_boxes"][i]
         color = colors[all_classes.index(cls)]
-        ### draw box
-        mode = "box" # either "box" or "ellipse"
-        ### boxes information added in the ground truth dictionary
+        # draw box
+        mode = "box"  # either "box" or "ellipse"
+        # boxes information added in the ground truth dictionary
         maxR = RD_img.shape[0]
         RD_box = np.array([[maxR - bbox3d[0] - bbox3d[3]/2, bbox3d[2] + bbox3d[5]/2, bbox3d[3], bbox3d[5]]])
         RA_box = np.array([[maxR - bbox3d[0] - bbox3d[3]/2, bbox3d[1] + bbox3d[4]/2, bbox3d[3], bbox3d[4]]])
         #cart_box = np.array([cart_box])
-        ### draw boxes
-        drawBoxOrEllipse(RD_box, cls, axes[1], color, \
-                        x_shape=RD_img.shape[1], mode=mode)
-        drawBoxOrEllipse(RA_box, cls, axes[2], color, \
-                        x_shape=RA_img.shape[1], mode=mode)
-        #drawBoxOrEllipse(cart_box, cls, axes[3], color, \
+        # draw boxes
+        drawBoxOrEllipse(RD_box, cls, axes[1], color,
+                         x_shape=RD_img.shape[1], mode=mode)
+        drawBoxOrEllipse(RA_box, cls, axes[2], color,
+                         x_shape=RA_img.shape[1], mode=mode)
+        # drawBoxOrEllipse(cart_box, cls, axes[3], color, \
         #                x_shape=RA_cart_img.shape[1], mode=mode)
 
     imgPlot(stereo_left_image, axes[0], None, None, "camera")
-    imgPlot(RD_img[-1::-1,...], axes[1], None, 1, "RD") 
-    imgPlot(RA_img[-1::-1,...], axes[2], None, 1, "RA") 
+    imgPlot(RD_img[-1::-1, ...], axes[1], None, 1, "RD")
+    imgPlot(RA_img[-1::-1, ...], axes[2], None, 1, "RA")
     imgPlot(RA_cart_img, axes[3], None, 1, "Cartesian")
 
-def drawRadarPredWithGt(stereo_left_image, RD_img, RA_img, RA_cart_img, \
-                        radar_instances, radar_nms_pred, all_classes, colors, axes, \
+
+def drawRadarPredWithGt(stereo_left_image, RD_img, RA_img, RA_cart_img,
+                        radar_instances, radar_nms_pred, all_classes, colors, axes,
                         radar_cart_nms=None):
     """ draw only boxes on the input images """
     assert len(radar_instances["boxes"]) == len(radar_instances["classes"])
@@ -457,35 +478,35 @@ def drawRadarPredWithGt(stereo_left_image, RD_img, RA_img, RA_cart_img, \
         cls = radar_instances["classes"][i]
         cart_box = radar_instances["cart_boxes"][i]
         color = colors[all_classes.index(cls)]
-        ### draw box
-        mode = "box" # either "box" or "ellipse"
-        ### boxes information added in the ground truth dictionary
+        # draw box
+        mode = "box"  # either "box" or "ellipse"
+        # boxes information added in the ground truth dictionary
         RD_box = np.array([[bbox3d[0], bbox3d[2], bbox3d[3], bbox3d[5]]])
         RA_box = np.array([[bbox3d[0], bbox3d[1], bbox3d[3], bbox3d[4]]])
         cart_box = np.array([cart_box])
-        ### draw boxes
-        drawBoxOrEllipse(RD_box, cls, axes[0], color, \
-                        x_shape=RD_img.shape[1], mode=mode, if_facecolor=True)
-        drawBoxOrEllipse(RA_box, cls, axes[1], color, \
-                        x_shape=RA_img.shape[1], mode=mode, if_facecolor=True)
+        # draw boxes
+        drawBoxOrEllipse(RD_box, cls, axes[0], color,
+                         x_shape=RD_img.shape[1], mode=mode, if_facecolor=True)
+        drawBoxOrEllipse(RA_box, cls, axes[1], color,
+                         x_shape=RA_img.shape[1], mode=mode, if_facecolor=True)
         if len(axes) > 3:
-            drawBoxOrEllipse(cart_box, cls, axes[2], color, \
-                        x_shape=RA_cart_img.shape[1], mode=mode, if_facecolor=True)
+            drawBoxOrEllipse(cart_box, cls, axes[2], color,
+                             x_shape=RA_cart_img.shape[1], mode=mode, if_facecolor=True)
 
     for i in range(len(radar_nms_pred)):
         bbox3d = radar_nms_pred[i, :6]
         cls = int(radar_nms_pred[i, 7])
         color = colors[int(cls)]
-        ### draw box
-        mode = "box" # either "box" or "ellipse"
-        ### boxes information added in the ground truth dictionary
+        # draw box
+        mode = "box"  # either "box" or "ellipse"
+        # boxes information added in the ground truth dictionary
         RD_box = np.array([[bbox3d[0], bbox3d[2], bbox3d[3], bbox3d[5]]])
         RA_box = np.array([[bbox3d[0], bbox3d[1], bbox3d[3], bbox3d[4]]])
-        ### draw boxes
-        drawBoxOrEllipse(RD_box, all_classes[cls], axes[0], color, \
-                        x_shape=RD_img.shape[1], mode=mode)
-        drawBoxOrEllipse(RA_box, all_classes[cls], axes[1], color, \
-                        x_shape=RA_img.shape[1], mode=mode)
+        # draw boxes
+        drawBoxOrEllipse(RD_box, all_classes[cls], axes[0], color,
+                         x_shape=RD_img.shape[1], mode=mode)
+        drawBoxOrEllipse(RA_box, all_classes[cls], axes[1], color,
+                         x_shape=RA_img.shape[1], mode=mode)
 
     if len(axes) > 3 and radar_cart_nms is not None:
         for i in range(len(radar_cart_nms)):
@@ -493,35 +514,35 @@ def drawRadarPredWithGt(stereo_left_image, RD_img, RA_img, RA_cart_img, \
             cls = int(radar_cart_nms[i, 5])
             class_name = all_classes[cls]
             color = colors[int(cls)]
-            mode = "box" # either "box" or "ellipse"
-            drawBoxOrEllipse(cart_box, class_name, axes[2], color, \
-                                x_shape=RA_cart_img.shape[1], mode=mode)
+            mode = "box"  # either "box" or "ellipse"
+            drawBoxOrEllipse(cart_box, class_name, axes[2], color,
+                             x_shape=RA_cart_img.shape[1], mode=mode)
 
     imgPlot(stereo_left_image, axes[-1], None, None, "camera")
-    imgPlot(RD_img, axes[0], None, 1, "RD") 
-    imgPlot(RA_img, axes[1], None, 1, "RA") 
+    imgPlot(RD_img, axes[0], None, 1, "RD")
+    imgPlot(RA_img, axes[1], None, 1, "RA")
     if len(axes) > 3:
-        imgPlot(RA_cart_img, axes[2], None, 1, "Cartesian") 
+        imgPlot(RA_cart_img, axes[2], None, 1, "Cartesian")
 
 
-def drawInference(stereo_left_image, RD_img, RA_img, RA_cart_img, radar_nms_pred, \
-                all_classes, colors, axes, radar_cart_nms=None):
+def drawInference(stereo_left_image, RD_img, RA_img, RA_cart_img, radar_nms_pred,
+                  all_classes, colors, axes, radar_cart_nms=None):
     """ draw only boxes on the input images """
     color_black = [0., 0., 0.]
     for i in range(len(radar_nms_pred)):
         bbox3d = radar_nms_pred[i, :6]
         cls = int(radar_nms_pred[i, 7])
         color = colors[int(cls)]
-        ### draw box
-        mode = "box" # either "box" or "ellipse"
-        ### boxes information added in the ground truth dictionary
+        # draw box
+        mode = "box"  # either "box" or "ellipse"
+        # boxes information added in the ground truth dictionary
         RD_box = np.array([[bbox3d[0], bbox3d[2], bbox3d[3], bbox3d[5]]])
         RA_box = np.array([[bbox3d[0], bbox3d[1], bbox3d[3], bbox3d[4]]])
-        ### draw boxes
-        drawBoxOrEllipse(RD_box, all_classes[cls], axes[0], color, \
-                        x_shape=RD_img.shape[1], mode=mode)
-        drawBoxOrEllipse(RA_box, all_classes[cls], axes[1], color, \
-                        x_shape=RA_img.shape[1], mode=mode)
+        # draw boxes
+        drawBoxOrEllipse(RD_box, all_classes[cls], axes[0], color,
+                         x_shape=RD_img.shape[1], mode=mode)
+        drawBoxOrEllipse(RA_box, all_classes[cls], axes[1], color,
+                         x_shape=RA_img.shape[1], mode=mode)
 
     if len(axes) > 3 and radar_cart_nms is not None:
         for i in range(len(radar_cart_nms)):
@@ -529,19 +550,21 @@ def drawInference(stereo_left_image, RD_img, RA_img, RA_cart_img, radar_nms_pred
             cls = int(radar_cart_nms[i, 5])
             class_name = all_classes[cls]
             color = colors[int(cls)]
-            mode = "box" # either "box" or "ellipse"
-            drawBoxOrEllipse(cart_box, class_name, axes[2], color, \
-                                x_shape=RA_cart_img.shape[1], mode=mode)
+            mode = "box"  # either "box" or "ellipse"
+            drawBoxOrEllipse(cart_box, class_name, axes[2], color,
+                             x_shape=RA_cart_img.shape[1], mode=mode)
 
     imgPlot(stereo_left_image, axes[-1], None, None, "camera")
-    imgPlot(RD_img, axes[0], None, 1, "RD") 
-    imgPlot(RA_img, axes[1], None, 1, "RA") 
+    imgPlot(RD_img, axes[0], None, 1, "RD")
+    imgPlot(RA_img, axes[1], None, 1, "RA")
     if len(axes) > 3:
         imgPlot(RA_cart_img, axes[2], None, 1, "Cartesian")
-        
+
 # This is the custom one
-def drawInference(RD_img, RA_img, RA_cart_img, radar_nms_pred, \
-                all_classes, colors, axes, radar_cart_nms=None):
+
+
+def drawInference(RD_img, RA_img, RA_cart_img, radar_nms_pred,
+                  all_classes, colors, axes, radar_cart_nms=None):
     """ draw only boxes on the input images """
     color_black = [0., 0., 0.]
     print("Using custom drawer method")
@@ -549,17 +572,17 @@ def drawInference(RD_img, RA_img, RA_cart_img, radar_nms_pred, \
         bbox3d = radar_nms_pred[i, :6]
         cls = int(radar_nms_pred[i, 7])
         color = colors[int(cls)]
-        ### draw box
-        mode = "box" # either "box" or "ellipse"
-        ### boxes information added in the ground truth dictionary
+        # draw box
+        mode = "box"  # either "box" or "ellipse"
+        # boxes information added in the ground truth dictionary
         RD_box = np.array([[bbox3d[0], bbox3d[2], bbox3d[3], bbox3d[5]]])
         RA_box = np.array([[bbox3d[0], bbox3d[1], bbox3d[3], bbox3d[4]]])
-        ### draw boxes
-        drawBoxOrEllipse(RD_box, all_classes[cls], axes[0], color, \
-                        x_shape=RD_img.shape[1], mode=mode)
-        drawBoxOrEllipse(RA_box, all_classes[cls], axes[1], color, \
-                        x_shape=RA_img.shape[1], mode=mode, confidence=radar_nms_pred[i, 6])
-                        
+        # draw boxes
+        drawBoxOrEllipse(RD_box, all_classes[cls], axes[0], color,
+                         x_shape=RD_img.shape[1], mode=mode)
+        drawBoxOrEllipse(RA_box, all_classes[cls], axes[1], color,
+                         x_shape=RA_img.shape[1], mode=mode, confidence=radar_nms_pred[i, 6])
+
     if len(axes) > 2 and radar_cart_nms is not None and False:
         for i in range(len(radar_cart_nms)):
             temp = radar_cart_nms[i, :4]
@@ -568,14 +591,15 @@ def drawInference(RD_img, RA_img, RA_cart_img, radar_nms_pred, \
             cls = int(radar_cart_nms[i, 5])
             class_name = all_classes[cls]
             color = colors[int(cls)]
-            mode = "box" # either "box" or "ellipse"
-            drawBoxOrEllipse(cart_box, class_name, axes[2], color, \
-                                x_shape=RA_cart_img.shape[1], mode=mode)
+            mode = "box"  # either "box" or "ellipse"
+            drawBoxOrEllipse(cart_box, class_name, axes[2], color,
+                             x_shape=RA_cart_img.shape[1], mode=mode)
 
-    imgPlot(RD_img, axes[0], None, 1, "RD") 
-    imgPlot(RA_img, axes[1], None, 1, "RA") 
+    imgPlot(RD_img, axes[0], None, 1, "RD")
+    imgPlot(RA_img, axes[1], None, 1, "RA")
     if len(axes) > 2:
         imgPlot(RA_cart_img, axes[2], None, 1, "Camera")
+
 
 def drawGt(RD_img, RA_img, gts, axes):
     """ draw only boxes on the input images """
@@ -585,18 +609,16 @@ def drawGt(RD_img, RA_img, gts, axes):
         bbox3d = gts["boxes"][i, :]
         cls = gts["classes"][i]
         #cls = [index - 7 for index in range(7, len(gts[i])) if gts[i][index] > 0.]
-        ### draw box
-        mode = "box" # either "box" or "ellipse"
-        ### boxes information added in the ground truth dictionary
+        # draw box
+        mode = "box"  # either "box" or "ellipse"
+        # boxes information added in the ground truth dictionary
         RD_box = np.array([[bbox3d[0], bbox3d[2], bbox3d[3], bbox3d[5]]])
         RA_box = np.array([[bbox3d[0], bbox3d[1], bbox3d[3], bbox3d[4]]])
-        ### draw boxes
-        drawBoxOrEllipse(RD_box, cls, axes[0], color, \
-                        x_shape=RD_img.shape[1], mode=mode)
-        drawBoxOrEllipse(RA_box, cls, axes[1], color, \
-                        x_shape=RA_img.shape[1], mode=mode)
-                        
-    imgPlot(RD_img, axes[0], None, 1, "RD") 
-    imgPlot(RA_img, axes[1], None, 1, "RA") 
+        # draw boxes
+        drawBoxOrEllipse(RD_box, cls, axes[0], color,
+                         x_shape=RD_img.shape[1], mode=mode)
+        drawBoxOrEllipse(RA_box, cls, axes[1], color,
+                         x_shape=RA_img.shape[1], mode=mode)
 
-
+    imgPlot(RD_img, axes[0], None, 1, "RD")
+    imgPlot(RA_img, axes[1], None, 1, "RA")

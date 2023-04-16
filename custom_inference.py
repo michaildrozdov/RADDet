@@ -1,31 +1,25 @@
 # Title: RADDet
 # Authors: Ao Zhang, Erlik Nowruzi, Robert Laganiere
-import os
-os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"]="0"
-
-import cv2
-import numpy as np
-import tensorflow as tf
-import tensorflow.keras as K
-import matplotlib.pyplot as plt
-
-import shutil
-from glob import glob
-from tqdm import tqdm
-import time
-
-import model.model as M
-import model.model_cart as MCart
-from dataset.custom_batch_data_generator import RadarDataLoader
-from dataset.custom_batch_data_generator import RawDataLoader
-import metrics.mAP as mAP
-
-import util.loader as loader
-import util.helper as helper
-import util.drawer as drawer
-
 from hungarian import hungarian_algorithm
+import util.drawer as drawer
+import util.helper as helper
+import util.loader as loader
+import metrics.mAP as mAP
+from dataset.custom_batch_data_generator import RawDataLoader
+from dataset.custom_batch_data_generator import RadarDataLoader
+import model.model_cart as MCart
+import model.model as M
+import time
+from tqdm import tqdm
+from glob import glob
+import shutil
+import matplotlib.pyplot as plt
+import tensorflow as tf
+import numpy as np
+import cv2
+import os
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 
 def rad_to_cartesian(rangeIndex, angleIndex, anglePadding, dr, dSinAz):
@@ -35,6 +29,7 @@ def rad_to_cartesian(rangeIndex, angleIndex, anglePadding, dr, dSinAz):
     x = r * np.sin(a)
     y = r * np.cos(a)
     return (x, y)
+
 
 def cutImage(image_dir, image_filename):
     image_name = os.path.join(image_dir, image_filename)
@@ -56,6 +51,7 @@ def cutImage3Axes(image_dir, image_filename):
     new_img = np.concatenate([part_1, part_2, part_3], axis=1)
     cv2.imwrite(image_name, new_img)
 
+
 def cutImageCustom(image_dir, image_filename):
     image_name = os.path.join(image_dir, image_filename)
     image = cv2.imread(image_name)
@@ -69,12 +65,12 @@ def cutImageCustom(image_dir, image_filename):
     cv2.imwrite(image_name, new_img)
 
 
-def loadDataForPlot(dataLoader, config_data, showSynchronizedVideo, \
+def loadDataForPlot(dataLoader, config_data, showSynchronizedVideo,
                     config_radar, interpolation=15.):
     """ Load data one by one for generating evaluation images """
     sequence_num = -1
     totalSamples = dataLoader.get_total_samples()
-    #for RAD_file in all_RAD_files:
+    # for RAD_file in all_RAD_files:
     for s in range(totalSamples):
         sequence_num += 1
 
@@ -85,25 +81,27 @@ def loadDataForPlot(dataLoader, config_data, showSynchronizedVideo, \
 
         RA = helper.getSumDim(np.abs(RAD_complex), target_axis=-1)
         RD = helper.getSumDim(np.abs(RAD_complex), target_axis=1)
-        
+
         RA_cart = helper.toCartesianMaskCustom(RA, config_radar)
         RA_img = helper.norm2Image(RA)[..., :3]
         RD_img = helper.norm2Image(RD)[..., :3]
         RA_cart_img = helper.norm2Image(RA_cart)[..., :3]
 
         if not showSynchronizedVideo:
-            img_file = "images/calib_target.jpg" # Just a dummy
+            img_file = "images/calib_target.jpg"  # Just a dummy
             stereo_left_image = loader.readStereoLeft(img_file)
 
         RAD_data = np.log(np.abs(RAD_complex) + 1e-9)
         RAD_data = (RAD_data - config_data["global_mean_log"]) / \
-                            config_data["global_variance_log"]
+            config_data["global_variance_log"]
         data = tf.expand_dims(tf.constant(RAD_data, dtype=tf.float32), axis=0)
         yield sequence_num, data, stereo_left_image, RD_img, RA_img, RA_cart_img, gt_instances
+
 
 @tf.function
 def modelAsGraph(model, data):
     return model(data)
+
 
 def main():
     ### NOTE: GPU manipulation, you may can print this out if necessary ###
@@ -122,7 +120,7 @@ def main():
     config_evaluate = config["EVALUATE"]
     config_inference = config["INFERENCE"]
 
-    anchor_boxes = loader.readAnchorBoxes() # load anchor boxes with order
+    anchor_boxes = loader.readAnchorBoxes()  # load anchor boxes with order
     anchor_cart = loader.readAnchorBoxes(anchor_boxes_file="./anchors_cartboxes.txt")
     num_classes = len(config_data["all_classes"])
 
@@ -133,22 +131,22 @@ def main():
     model.summary()
 
     ### NOTE: building another model for Cartesian Boxes ###
-    model_cart = MCart.RADDetCart(config_model, config_data, config_train, \
-                                anchor_cart, list(model.backbone_fmp_shape))
+    model_cart = MCart.RADDetCart(config_model, config_data, config_train,
+                                  anchor_cart, list(model.backbone_fmp_shape))
     model_cart.build([None] + model.backbone_fmp_shape)
     model_cart.summary()
 
     ### NOTE: RAD Boxes ckpt ###
-    logdir = os.path.join(config_inference["log_dir"], \
-                        "b_" + str(config_train["batch_size"]) + \
-                        "lr_" + str(config_train["learningrate_init"]))
+    logdir = os.path.join(config_inference["log_dir"],
+                          "b_" + str(config_train["batch_size"]) +
+                          "lr_" + str(config_train["learningrate_init"]))
     if not os.path.exists(logdir):
         raise ValueError("RAD Boxes model not loaded, please check the ckpt path.")
     global_steps = tf.Variable(1, trainable=False, dtype=tf.int64)
-    optimizer = K.optimizers.Adam(learning_rate=config_train["learningrate_init"])
+    optimizer = tf.keras.optimizers.Adam(learning_rate=config_train["learningrate_init"])
     ckpt = tf.train.Checkpoint(optimizer=optimizer, model=model, step=global_steps)
-    manager = tf.train.CheckpointManager(ckpt, \
-                os.path.join(logdir, "ckpt"), max_to_keep=3)
+    manager = tf.train.CheckpointManager(ckpt,
+                                         os.path.join(logdir, "ckpt"), max_to_keep=3)
     ckpt.restore(manager.latest_checkpoint)
     if manager.latest_checkpoint:
         print("Restored RAD Boxes Model from {}".format(manager.latest_checkpoint))
@@ -157,11 +155,11 @@ def main():
 
     ### NOTE: Cartesian Boxes ckpt ###
     if_evaluate_cart = True
-    logdir_cart = os.path.join(config_inference["log_dir"], "cartesian_" + \
-                        "b_" + str(config_train["batch_size"]) + \
-                        "lr_" + str(config_train["learningrate_init"]))
-                        # "lr_" + str(config_train["learningrate_init"]) + \
-                        # "_" + str(config_train["log_cart_add"]))
+    logdir_cart = os.path.join(config_inference["log_dir"], "cartesian_" +
+                               "b_" + str(config_train["batch_size"]) +
+                               "lr_" + str(config_train["learningrate_init"]))
+    # "lr_" + str(config_train["learningrate_init"]) + \
+    # "_" + str(config_train["log_cart_add"]))
     if not os.path.exists(logdir_cart):
         if_evaluate_cart = False
         print("*************************************************************")
@@ -169,21 +167,22 @@ def main():
         print("*************************************************************")
     if if_evaluate_cart:
         global_steps_cart = tf.Variable(1, trainable=False, dtype=tf.int64)
-        optimizer_cart = K.optimizers.Adam(learning_rate=config_train["learningrate_init"])
-        ckpt_cart = tf.train.Checkpoint(optimizer=optimizer_cart, model=model_cart, \
+        optimizer_cart = tf.keras.optimizers.Adam(learning_rate=config_train["learningrate_init"])
+        ckpt_cart = tf.train.Checkpoint(optimizer=optimizer_cart, model=model_cart,
                                         step=global_steps_cart)
-        manager_cart = tf.train.CheckpointManager(ckpt_cart, \
-                    os.path.join(logdir_cart, "ckpt"), max_to_keep=3)
+        manager_cart = tf.train.CheckpointManager(ckpt_cart,
+                                                  os.path.join(logdir_cart, "ckpt"), max_to_keep=3)
         ckpt_cart.restore(manager_cart.latest_checkpoint)
         if manager.latest_checkpoint:
-            print("Restored Cartesian Boxes Model from {}".format\
-                                            (manager_cart.latest_checkpoint))
+            print("Restored Cartesian Boxes Model from {}".format
+                  (manager_cart.latest_checkpoint))
 
     def inferencePlotting(all_original_files, showSynchronizedVideo, calculateErrors):
         """ Plot the predictions of all data in dataset """
 
-        globalEndsList = [] # Last frames for each of the measurement
+        globalEndsList = []  # Last frames for each of the measurement
         globalIndex = 0
+
         def insert_file_end():
             globalEndsList.append(globalIndex)
 
@@ -200,16 +199,16 @@ def main():
             shutil.rmtree(image_save_dir)
             os.makedirs(image_save_dir)
         print("Start plotting, it might take a while...")
-        
+
         if showSynchronizedVideo:
             testLoader = RadarDataLoader(all_original_files,
-                                        config_inference["loader_samples_ratio"],
-                                        config_model["input_shape"][2],
-                                        2,
-                                        samplesToLoad=15000,
-                                        randomize=False,
-                                        showSynchronizedVideo=showSynchronizedVideo,
-                                        finishedFileCallback=insert_file_end)
+                                         config_inference["loader_samples_ratio"],
+                                         config_model["input_shape"][2],
+                                         2,
+                                         samplesToLoad=15000,
+                                         randomize=False,
+                                         showSynchronizedVideo=showSynchronizedVideo,
+                                         finishedFileCallback=insert_file_end)
         else:
             testLoader = RawDataLoader("../Downloads/empty/2022-11-07_09_22_27/2022-11-07_09_22_27_tx2.raw")
 
@@ -244,20 +243,20 @@ def main():
                 loadDataForPlot(testLoader, config_data, showSynchronizedVideo, config_radar):
 
             globalIndex += 1
-            
+
             if data is None or stereo_left_image is None:
                 pbar.update(1)
                 continue
             model_RAD_time_start = time.time()
 
             if showSynchronizedVideo:
-                RA_cart_img = stereo_left_image[:,:,::-1]
-            
+                RA_cart_img = stereo_left_image[:, :, ::-1]
+
             if firstIteration:
                 feature = model(data)
                 np.save("network_in.npy", data)
-                tf.saved_model.save(model, "model_b_" + str(config_train["batch_size"]) + \
-                    "lr_" + str(config_train["learningrate_init"]))
+                tf.saved_model.save(model, "model_b_" + str(config_train["batch_size"]) +
+                                    "lr_" + str(config_train["learningrate_init"]))
                 np.save("network_out.npy", feature)
                 firstIteration = False
             else:
@@ -265,16 +264,16 @@ def main():
             pred_raw, pred = model.decodeYolo(feature)
 
             #np.save("decoded2.npy", pred)
-            
+
             pred_frame = pred[0]
-            predicitons = helper.yoloheadToPredictions(pred_frame, \
-                                    conf_threshold=config_evaluate["confidence_threshold"])
+            predicitons = helper.yoloheadToPredictions(pred_frame,
+                                                       conf_threshold=config_evaluate["confidence_threshold"])
             print(predicitons)
             print(f"NMS IoU threshold {config_inference['nms_iou3d_threshold']}")
-            nms_pred = helper.nms(predicitons, \
-                                    config_inference["nms_iou3d_threshold"], \
-                                    config_model["input_shape"], \
-                                    sigma=0.3, method="nms")
+            nms_pred = helper.nms(predicitons,
+                                  config_inference["nms_iou3d_threshold"],
+                                  config_model["input_shape"],
+                                  sigma=0.3, method="nms")
 
             netResults[curResultIndex] = nms_pred
             gtResults[curResultIndex] = gt_instances["boxes"]
@@ -284,8 +283,9 @@ def main():
             distDisplace = 8
             for d in range(nms_pred.shape[0]):
                 cls = int(nms_pred[d, 7])
-                print(f"Detected {config_data['all_classes'][cls]} at {int(nms_pred[d, 0])}, {int(nms_pred[d, 1])}, " \
-                    f"{int(nms_pred[d, 2])} ({int(nms_pred[d, 3])} by {int(nms_pred[d, 4])} by {int(nms_pred[d, 5])}) " \
+                print(
+                    f"Detected {config_data['all_classes'][cls]} at {int(nms_pred[d, 0])}, {int(nms_pred[d, 1])}, "
+                    f"{int(nms_pred[d, 2])} ({int(nms_pred[d, 3])} by {int(nms_pred[d, 4])} by {int(nms_pred[d, 5])}) "
                     f"with prob {nms_pred[d, 6]}")
 
             if calculateErrors:
@@ -328,13 +328,13 @@ def main():
 
                     for c, a in enumerate(assignments):
                         if c >= len(cartesianGt):
-                            break # further entries are due to the matrix augmentation
+                            break  # further entries are due to the matrix augmentation
 
-                        if costMatrix[a[0], a[1]] > 99: # No assignment found
+                        if costMatrix[a[0], a[1]] > 99:  # No assignment found
                             missedDetections[tIndex] += 1
                         else:
                             distanceSqErrors[tIndex].append(costMatrix[a[0], a[1]])
-                    
+
                     if len(cartesianDetections) > len(cartesianGt):
                         #print(f"There are false detections. len(cartesianDetections) {len(cartesianDetections)}, len(cartesianGt) {len(cartesianGt)}")
                         falseDetections[tIndex] += len(cartesianDetections) - len(cartesianGt)
@@ -364,31 +364,31 @@ def main():
                 pred_raw_cart = model_cart(backbone_fmp)
                 pred_cart = model_cart.decodeYolo(pred_raw_cart)
                 pred_frame_cart = pred_cart[0]
-                predicitons_cart = helper.yoloheadToPredictions2D(pred_frame_cart, \
-                                                        conf_threshold=0.5)
-                nms_pred_cart = helper.nms2D(predicitons_cart, \
-                                        config_inference["nms_iou3d_threshold"], \
-                                        config_model["input_shape"], \
-                                        sigma=0.3, method="nms")
+                predicitons_cart = helper.yoloheadToPredictions2D(pred_frame_cart,
+                                                                  conf_threshold=0.5)
+                nms_pred_cart = helper.nms2D(predicitons_cart,
+                                             config_inference["nms_iou3d_threshold"],
+                                             config_model["input_shape"],
+                                             sigma=0.3, method="nms")
                 for d in range(nms_pred_cart.shape[0]):
                     cls = int(nms_pred_cart[d, 5])
-                    print(f"Detected {config_data['all_classes'][cls]} at {int(nms_pred_cart[d, 0])}, " \
-                        f"{int(nms_pred_cart[d, 1])} ({int(nms_pred_cart[d, 2])} by {int(nms_pred_cart[d, 3])})" \
-                        f" with prob {nms_pred_cart[d, 4]}")
-                
+                    print(f"Detected {config_data['all_classes'][cls]} at {int(nms_pred_cart[d, 0])}, "
+                          f"{int(nms_pred_cart[d, 1])} ({int(nms_pred_cart[d, 2])} by {int(nms_pred_cart[d, 3])})"
+                          f" with prob {nms_pred_cart[d, 4]}")
+
                 model_cart_st.append(time.time() - model_cart_time_start)
             else:
                 nms_pred_cart = None
             drawer.clearAxes(axes)
-            drawer.drawInference(RD_img, \
-                    RA_img, RA_cart_img, nms_pred, \
-                    config_data["all_classes"], colors, axes, \
-                    radar_cart_nms=nms_pred_cart)
+            drawer.drawInference(RD_img,
+                                 RA_img, RA_cart_img, nms_pred,
+                                 config_data["all_classes"], colors, axes,
+                                 radar_cart_nms=nms_pred_cart)
             drawer.drawGt(RD_img, RA_img, gt_instances, axes)
-            drawer.saveFigure(image_save_dir, "%.6d.png"%(sequence_num))
+            drawer.saveFigure(image_save_dir, "%.6d.png" % (sequence_num))
 
             if showSynchronizedVideo:
-                cutImageCustom(image_save_dir, "%.6d.png"%(sequence_num))
+                cutImageCustom(image_save_dir, "%.6d.png" % (sequence_num))
             '''
             # This is the original implementation removed from this logic
             if if_evaluate_cart:
@@ -397,11 +397,11 @@ def main():
                 cutImage3Axes(image_save_dir, "%.6d.png"%(sequence_num))
             '''
             pbar.update(1)
-        print("------", " The average inference time for RAD Boxes: ", \
-                                                np.mean(model_RAD_st))
+        print("------", " The average inference time for RAD Boxes: ",
+              np.mean(model_RAD_st))
         if if_evaluate_cart:
-            print("======", " The average inference time for Cartesian Boxes: ", \
-                                                    np.mean(model_cart_st))
+            print("======", " The average inference time for Cartesian Boxes: ",
+                  np.mean(model_cart_st))
         if calculateErrors:
             for tInd in range(len(thresholds)):
                 reportName = f"errors_{thresholds[tInd]:.2}.txt"

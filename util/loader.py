@@ -9,13 +9,15 @@ import random
 import colorsys
 from glob import glob
 
-def readConfig(config_file_name = "./config.json"):
+
+def readConfig(config_file_name="./config.json"):
     """ Read the configure file (json). """
     with open(config_file_name) as json_file:
         config = json.load(json_file)
     return config
 
-def readAnchorBoxes(anchor_boxes_file = "./anchors.txt"):
+
+def readAnchorBoxes(anchor_boxes_file="./anchors.txt"):
     """ Read the anchor boxes found by k means """
     anchor_boxes = []
     with open(anchor_boxes_file) as txt_file:
@@ -37,6 +39,7 @@ def readAnchorBoxes(anchor_boxes_file = "./anchors.txt"):
             anchor_boxes = sortAnchorBoxes(anchor_boxes)
     return anchor_boxes
 
+
 def sortAnchorBoxes(anchor_boxes, mode="3D"):
     """ Sort anchor boxes according to its area """
     if mode == "3D":
@@ -47,6 +50,7 @@ def sortAnchorBoxes(anchor_boxes, mode="3D"):
     # print(anchor_box_areas[anchor_boxes_order]) # print out the boxes' areas
     return anchor_boxes[anchor_boxes_order]
 
+
 def getSequenceNumbers(radar_dir, data_format):
     """ Get all the numbers from input file names """
     assert isinstance(data_format, list)
@@ -54,8 +58,8 @@ def getSequenceNumbers(radar_dir, data_format):
     assert (len(data_format) == 2 or len(data_format) == 3)
     sequence_numbers = []
     for this_file in glob(os.path.join(radar_dir, "*"+data_format[-1])):
-        digits = int("".join((s for s in this_file.replace(radar_dir, "") \
-                    if s.isdigit())))
+        digits = int("".join((s for s in this_file.replace(radar_dir, "")
+                              if s.isdigit())))
         sequence_numbers.append(digits)
     if len(sequence_numbers) == 0:
         sequence_numbers = None
@@ -63,7 +67,8 @@ def getSequenceNumbers(radar_dir, data_format):
         sequence_numbers = np.sort(sequence_numbers)
     return sequence_numbers
 
-def randomColors(classes, bright=True): 
+
+def randomColors(classes, bright=True):
     """ Define colors for all categories. """
     assert isinstance(classes, list)
     assert all(isinstance(x, str) for x in classes)
@@ -74,18 +79,21 @@ def randomColors(classes, bright=True):
     random.seed(8888)
     random.shuffle(colors)
     return colors
- 
+
+
 def gtfileFromRADfile(RAD_file, prefix):
     """ Transfer RAD filename to gt filename """
     RAD_file_spec = RAD_file.split("RAD")[-1]
     gt_file = os.path.join(prefix, "gt") + RAD_file_spec.replace("npy", "pickle")
     return gt_file
- 
+
+
 def imgfileFromRADfile(RAD_file, prefix):
     """ Transfer RAD filename to gt filename """
     RAD_file_spec = RAD_file.split("RAD")[-1]
     gt_file = os.path.join(prefix, "stereo_image") + RAD_file_spec.replace("npy", "jpg")
     return gt_file
+
 
 def readRAD(filename):
     """ read input RAD matrices """
@@ -93,6 +101,7 @@ def readRAD(filename):
         return np.load(filename)
     else:
         return None
+
 
 def readRadarInstances(pickle_file):
     """ read output radar instances. """
@@ -104,7 +113,8 @@ def readRadarInstances(pickle_file):
     else:
         radar_instances = None
     return radar_instances
-   
+
+
 def readStereoLeft(img_filename):
     """ read stereo left image for verification. """
     if os.path.exists(img_filename):
@@ -113,7 +123,8 @@ def readStereoLeft(img_filename):
         return left_image
     else:
         return None
-    
+
+
 def readSingleImage(img_filename):
     """ read stereo left image for verification. """
     if os.path.exists(img_filename):
@@ -122,4 +133,3 @@ def readSingleImage(img_filename):
         return image
     else:
         return None
-   

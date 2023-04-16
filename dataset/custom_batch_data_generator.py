@@ -103,8 +103,8 @@ class DataGenerator:
             iou_scaled = helper.iou3d(box_xyzwhd_scaled, anchorstage_xyzwhd,
                                       self.input_size)
             ### NOTE: 0.3 is from YOLOv4, maybe this should be different here ###
-            ### it means, as long as iou is over 0.3 with an anchor, the anchor
-            ### should be taken into consideration as a ground truth label
+            # it means, as long as iou is over 0.3 with an anchor, the anchor
+            # should be taken into consideration as a ground truth label
             iou_mask = iou_scaled > 0.3
 
             if np.any(iou_mask):
@@ -118,8 +118,8 @@ class DataGenerator:
 
             if not exist_positive:
                 ### NOTE: this is the normal one ###
-                ### it means take the anchor box with maximum iou to the raw
-                ### box as the ground truth label
+                # it means take the anchor box with maximum iou to the raw
+                # box as the ground truth label
                 anchor_ind = np.argmax(iou_scaled)
                 xind, yind, zind = np.floor(np.squeeze(box_xyzwhd_scaled)[:3]).\
                     astype(np.int32)
@@ -148,7 +148,7 @@ class DataGenerator:
             ### NOTE: decode ground truth boxes to YOLO format ###
             gt_labels, has_label, raw_boxes = self.encodeToLabels(gt_instances)
 
-            #if has_label:
+            # if has_label:
             yield (RAD_data, gt_labels, raw_boxes)
 
     def testData(self, ):
@@ -166,7 +166,7 @@ class DataGenerator:
             ### NOTE: decode ground truth boxes to YOLO format ###
             gt_labels, has_label, raw_boxes = self.encodeToLabels(gt_instances)
 
-            #if has_label:
+            # if has_label:
             yield (RAD_data, gt_labels, raw_boxes)
 
     def validateData(self, ):
@@ -184,7 +184,7 @@ class DataGenerator:
             ### NOTE: decode ground truth boxes to YOLO format ###
             gt_labels, has_label, raw_boxes = self.encodeToLabels(gt_instances)
 
-            #if has_label:
+            # if has_label:
             yield (RAD_data, gt_labels, raw_boxes)
 
     def trainGenerator(self,):

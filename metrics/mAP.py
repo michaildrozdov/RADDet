@@ -1,10 +1,10 @@
 # Title: RADDet
 # Authors: Ao Zhang, Erlik Nowruzi, Robert Laganiere
 import tensorflow as tf
-import tensorflow.keras as K
 import numpy as np
 
 import util.helper as helper
+
 
 def getTruePositive(pred, gt, input_size, iou_threshold=0.5, mode="3D"):
     """ output tp (true positive) with size [num_pred, ] """
@@ -26,8 +26,9 @@ def getTruePositive(pred, gt, input_size, iou_threshold=0.5, mode="3D"):
             gt_box = gt[..., :4]
             gt_class = gt[..., 4]
 
-        if len(detected_gt_boxes) == len(gt): break
-        
+        if len(detected_gt_boxes) == len(gt):
+            break
+
         if mode == "3D":
             iou = helper.iou3d(current_pred_box[np.newaxis, ...], gt_box, input_size)
         else:
@@ -61,7 +62,7 @@ def computeAP(tp, fp, num_gt_class):
     i_list = []
     for i in range(1, len(mrec)):
         if mrec[i] != mrec[i-1]:
-            i_list.append(i) # if it was matlab would be i + 1
+            i_list.append(i)  # if it was matlab would be i + 1
 
     ap = 0.0
     for i in i_list:
@@ -84,13 +85,14 @@ def mAP(predictions, gts, input_size, ap_each_class, tp_iou_threshold=0.5, mode=
         pred_class = pred_class[np.argsort(pred_class[..., 6])[::-1]]
         ### NOTE: get the ground truth per class ###
         gt_class = gts[gts[..., 6] == class_i]
-        tp, fp = getTruePositive(pred_class, gt_class, input_size, \
-                                iou_threshold=tp_iou_threshold, mode=mode)
+        tp, fp = getTruePositive(pred_class, gt_class, input_size,
+                                 iou_threshold=tp_iou_threshold, mode=mode)
         ap, mrecall, mprecision = computeAP(tp, fp, len(gt_class))
         ap_all.append(ap)
         ap_each_class[int(class_i)].append(ap)
     mean_ap = np.mean(ap_all)
     return mean_ap, ap_each_class
+
 
 def appendTp(predictions, gts, input_size, tp_each_class, gt_each_class, conf_each_class, tp_iou_threshold=0.5, mode="3D"):
     """
@@ -106,14 +108,15 @@ def appendTp(predictions, gts, input_size, tp_each_class, gt_each_class, conf_ea
         pred_class = pred_class[np.argsort(pred_class[..., 6])[::-1]]
         ### NOTE: get the ground truth per class ###
         gt_class = gts[gts[..., 6] == class_i]
-        tp, fp = getTruePositive(pred_class, gt_class, input_size, \
-                                iou_threshold=tp_iou_threshold, mode=mode)
+        tp, fp = getTruePositive(pred_class, gt_class, input_size,
+                                 iou_threshold=tp_iou_threshold, mode=mode)
 
         tp_each_class[class_i] = np.concatenate((tp_each_class[class_i], tp), axis=0)
         gt_each_class[class_i] += len(gt_class)
-        conf_each_class[class_i] = np.concatenate((conf_each_class[class_i], pred_class[:,6]), axis=0)
+        conf_each_class[class_i] = np.concatenate((conf_each_class[class_i], pred_class[:, 6]), axis=0)
 
     return tp_each_class, gt_each_class, conf_each_class
+
 
 def mAPFromAccumulated(tp_each_class, gt_each_class, conf_each_class, include_empty=False):
     ap_all = []
@@ -131,6 +134,7 @@ def mAPFromAccumulated(tp_each_class, gt_each_class, conf_each_class, include_em
     mean_ap = np.mean(ap_all)
     return mean_ap, ap_all
 
+
 def mAP2D(predictions, gts, input_size, ap_each_class, tp_iou_threshold=0.5, mode="2D"):
     """ Main function for calculating mAP 
     Args:
@@ -145,8 +149,8 @@ def mAP2D(predictions, gts, input_size, ap_each_class, tp_iou_threshold=0.5, mod
         pred_class = pred_class[np.argsort(pred_class[..., 4])[::-1]]
         ### NOTE: get the ground truth per class ###
         gt_class = gts[gts[..., 4] == class_i]
-        tp, fp = getTruePositive(pred_class, gt_class, input_size, \
-                                iou_threshold=tp_iou_threshold, mode=mode)
+        tp, fp = getTruePositive(pred_class, gt_class, input_size,
+                                 iou_threshold=tp_iou_threshold, mode=mode)
         ap, mrecall, mprecision = computeAP(tp, fp, len(gt_class))
         ap_all.append(ap)
         ap_each_class[int(class_i)].append(ap)
