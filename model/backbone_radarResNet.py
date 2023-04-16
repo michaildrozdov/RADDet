@@ -80,39 +80,48 @@ def repeatBlock(conv, repeat_times, all_strides=None, all_expansions=None,
     return conv
 
 
-def radarResNet3D(x, ):
-    """ Build backbine ResNet3D """
-    ##### Parameters setup #####
+def radarResNet3D(x):
+    """
+    Builds a 3D ResNet backbone for radar data classification.
+    Args:
+        x: input tensor
+
+    Returns:
+        features: output tensor after processing through the ResNet backbone
+    """
+
+    # Set up initial convolution layer
     conv = x
 
-    #block_repeat_times = [2, 4, 8, 16]
+    # Set up block parameters
     block_repeat_times = [2, 2, 4, 8]
     channels_upsample = [False, False, True, True]
     feature_mp_downsample = [True, True, False, False]
-
     feature_stages = []
-    ##### repeated residual blocks ######
-    for i in range(len(block_repeat_times)):
-        repeat_times = block_repeat_times[i]
+
+    # Repeated residual blocks
+    for i, repeat_times in enumerate(block_repeat_times):
+        all_strides, all_expansions = [1] * repeat_times, [1] * repeat_times
+
+        # Set stride and expansion factors for each block
         if repeat_times != 1:
-            all_strides = [1, 1] * int(repeat_times/2)  # [1, 1, 1, 1]
-            all_expansions = [1, 1] * int(repeat_times/2)  # [1, 1, 1, 1]
-        else:
-            all_strides = [1] * int(repeat_times)  # [1, 1, 1, 1]
-            all_expansions = [1] * int(repeat_times)  # [1, 1, 1, 1]
+            all_strides = [1, 1] * int(repeat_times / 2)
+            all_expansions = [1, 1] * int(repeat_times / 2)
         if channels_upsample[i]:
             all_expansions[-1] *= 2
 
+        # Perform the repeated block operations
         feature_maps_downsample = feature_mp_downsample[i]
-        conv = repeatBlock(conv, repeat_times,
-                           all_strides, all_expansions,
-                           feature_maps_downsample)
+        conv = repeatBlock(conv, repeat_times, all_strides, all_expansions, feature_maps_downsample)
+
+        # Append the feature stage to a list
         if i > len(block_repeat_times) - 4:
             feature_stages.append(conv)
+
+    # Print the shape of each feature stage
     for stage_i in feature_stages:
         print("--- backbone stage shape ---", stage_i.shape)
 
-    ### NOTE: since we are doing one-level output, only last level is used ###
+    # Return the last feature stage
     features = feature_stages[-1]
-
     return features
