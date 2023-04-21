@@ -8,7 +8,7 @@ import metrics.mAP as mAP
 from dataset.custom_batch_data_generator import RawDataLoader
 from dataset.custom_batch_data_generator import RadarDataLoader
 import model.model_cart as MCart
-import model.model as M
+from model.raddet import RADDet
 import time
 from tqdm import tqdm
 from glob import glob
@@ -125,7 +125,7 @@ def main():
     num_classes = len(config_data["all_classes"])
 
     ### NOTE: using the yolo head shape out from model for data generator ###
-    model = M.RADDet(config_model, config_data, config_train, anchor_boxes)
+    model = RADDet(config_model, config_data, config_train, anchor_boxes)
     model.build([None] + config_model["input_shape"])
     model.backbone_stage.summary()
     model.summary()

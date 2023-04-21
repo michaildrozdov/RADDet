@@ -6,7 +6,7 @@ import util.loader as loader
 import metrics.mAP as mAP
 from dataset.batch_data_generator import DataGenerator
 import model.model_cart as MCart
-import model.model as M
+from model.raddet import RADDet
 from tabulate import tabulate
 from time import sleep
 from tqdm import tqdm
@@ -42,7 +42,7 @@ def main():
     num_classes = len(config_data["all_classes"])
 
     ### NOTE: using the yolo head shape out from model for data generator ###
-    model = M.RADDet(config_model, config_data, config_train, anchor_boxes)
+    model = RADDet(config_model, config_data, config_train, anchor_boxes)
     model.build([None] + config_model["input_shape"])
     model.backbone_stage.summary()
     model.summary()

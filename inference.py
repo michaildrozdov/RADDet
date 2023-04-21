@@ -6,7 +6,7 @@ import util.loader as loader
 import metrics.mAP as mAP
 from dataset.batch_data_generator import DataGenerator
 import model.model_cart as MCart
-import model.model as M
+from model.raddet import RADDet
 import time
 from tqdm import tqdm
 from glob import glob
@@ -93,8 +93,14 @@ def main():
     num_classes = len(config_data["all_classes"])
 
     ### NOTE: using the yolo head shape out from model for data generator ###
-    model = M.RADDet(config_model, config_data, config_train, anchor_boxes)
+    model = RADDet(config_model, config_data, config_train, anchor_boxes)
     model.build([None] + config_model["input_shape"])
+
+    # tf.keras.utils.plot_model(model.backbone_stage, 'backbone.png', show_shapes=True,
+    #                           show_dtype=True, show_layer_names=False, expand_nested=True, show_layer_activations=True)
+    # tf.keras.utils.plot_model(model, 'head.png', show_shapes=True,
+    #                           show_dtype=True, show_layer_names=False, expand_nested=True, show_layer_activations=True)
+
     model.backbone_stage.summary()
     model.summary()
 

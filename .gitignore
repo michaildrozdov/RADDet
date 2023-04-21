@@ -1,9 +1,6 @@
 debug.py
 inference_test.py
-dataset/__pycache__
-metrics/__pycache__
-model/__pycache__
-util/__pycache__
+__pycache__
 images/inference_plots
 images/samples
 logs
