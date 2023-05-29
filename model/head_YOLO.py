@@ -25,7 +25,7 @@ def singleLayerHead(feature_map, num_anchors_layer, num_class, last_channel):
     conv = L.convolution2D(conv, final_output_channels,
                            1, (1, 1), "same", None, use_activation=False, use_bias=True, bn=False,
                            if_regularization=False)
-    conv = tf.reshape(conv, final_output_reshape)
+    conv = tf.keras.layers.Reshape(final_output_reshape)(conv)
     return conv
 
 
@@ -54,9 +54,9 @@ def boxDecoder(yolohead_output, input_size, anchors_layer, num_class, scale=1.):
     pred_xyz = ((tf.sigmoid(raw_xyz) * scale) - 0.5 * (scale - 1) + xyz_grid) * \
         grid_strides
 
-    ###---------------- clipping values --------------------###
+    ### ---------------- clipping values --------------------###
     raw_whd = tf.clip_by_value(raw_whd, 1e-12, 1e12)
-    ###-----------------------------------------------------###
+    ### -----------------------------------------------------###
     pred_whd = tf.exp(raw_whd) * anchors_layer
     pred_xyzwhd = tf.concat([pred_xyz, pred_whd], axis=-1)
 
