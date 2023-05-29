@@ -33,7 +33,7 @@ def readAnchorBoxes(anchor_boxes_file="./anchors.txt"):
         anchor_boxes = None
     else:
         anchor_boxes = np.array(anchor_boxes)
-        if anchor_boxes_file is not "./anchors.txt":
+        if anchor_boxes_file != "./anchors.txt":
             anchor_boxes = sortAnchorBoxes(anchor_boxes, "2D")
         else:
             anchor_boxes = sortAnchorBoxes(anchor_boxes)
