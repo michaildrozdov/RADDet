@@ -17,8 +17,8 @@ import time
 
 import model.model as M
 import model.model_cart as MCart
-from dataset.custom_batch_data_generator import RadarDataLoader
-from dataset.custom_batch_data_generator import RawDataLoader
+from PositionFromArucoVideo.RadarDataLoader import RadarDataLoader
+from PositionFromArucoVideo.RawDataLoaderEx import RawDataLoaderEx
 import metrics.mAP as mAP
 
 import util.loader as loader
@@ -81,7 +81,7 @@ def loadDataForPlot(dataLoader, config_data, showSynchronizedVideo, \
         if showSynchronizedVideo:
             RAD_complex, gt_instances, stereo_left_image = next(dataLoader.yield_next_data())
         else:
-            RAD_complex, gt_instances = next(dataLoader.yield_next_data())
+            RAD_complex, RED_complex, gt_instances = next(dataLoader.yield_next_data())
 
         RA = helper.getSumDim(np.abs(RAD_complex), target_axis=-1)
         RD = helper.getSumDim(np.abs(RAD_complex), target_axis=1)
@@ -211,7 +211,8 @@ def main():
                                         showSynchronizedVideo=showSynchronizedVideo,
                                         finishedFileCallback=insert_file_end)
         else:
-            testLoader = RawDataLoader("../Downloads/empty/2022-11-07_09_22_27/2022-11-07_09_22_27_tx2.raw")
+            #testLoader = RawDataLoaderEx("../Downloads/wetransfer_inverted-phases_2023-05-27_1207/walking_diagonnally_bpm.raw", 3, False)
+            testLoader = RawDataLoaderEx("../new_raw_data/2023-11-23_12_40_52_bpm/2023-11-23_12_40_52_bpm.raw", 3, False, slide=5)
 
         testLoader.logLevel = 3
         totalSamples = testLoader.get_total_samples()
@@ -227,12 +228,18 @@ def main():
         print(thresholds)
         #thresholds = [0.8]
         distanceSqErrors = []
+        rangeErrors = []
+        angleErrors = []
+        velocityErrors = []
         missedDetections = []
         falseDetections = []
         detectedOnEmpty = []
         detectedOnEmptyPerFrame = []
         for i in range(len(thresholds)):
             distanceSqErrors.append([])
+            rangeErrors.append([])
+            angleErrors.append([])
+            velocityErrors.append([])
             missedDetections.append(0)
             falseDetections.append(0)
             detectedOnEmpty.append(0)
@@ -259,6 +266,7 @@ def main():
                 tf.saved_model.save(model, "model_b_" + str(config_train["batch_size"]) + \
                     "lr_" + str(config_train["learningrate_init"]))
                 np.save("network_out.npy", feature)
+                print(f"Size of features {feature.shape}")
                 firstIteration = False
             else:
                 feature = modelAsGraph(model, data)
@@ -278,15 +286,26 @@ def main():
 
             netResults[curResultIndex] = nms_pred
             gtResults[curResultIndex] = gt_instances["boxes"]
-            curResultIndex += 1
+            
 
             # A custom additional print
             distDisplace = 8
+            '''
             for d in range(nms_pred.shape[0]):
                 cls = int(nms_pred[d, 7])
-                print(f"Detected {config_data['all_classes'][cls]} at {int(nms_pred[d, 0])}, {int(nms_pred[d, 1])}, " \
-                    f"{int(nms_pred[d, 2])} ({int(nms_pred[d, 3])} by {int(nms_pred[d, 4])} by {int(nms_pred[d, 5])}) " \
-                    f"with prob {nms_pred[d, 6]}")
+                elevationIndex = np.argmax(RED_complex[int(nms_pred[d, 0]),:,int(nms_pred[d, 2])]) - RED_complex.shape[1]/2
+                if curResultIndex == 28 or curResultIndex == 29 or curResultIndex == 47:
+                    plt.plot(np.abs(RED_complex[int(nms_pred[d, 0]),:,int(nms_pred[d, 2])]))
+                    plt.savefig(str(curResultIndex) + "_" + str(d)+".png")
+                print(f"Detected {config_data['all_classes'][cls]} at {nms_pred[d, 0]}, {nms_pred[d, 1]}, " \
+                    f"{nms_pred[d, 2]} ({int(nms_pred[d, 3])} by {int(nms_pred[d, 4])} by {int(nms_pred[d, 5])}) " \
+                    f"with prob {nms_pred[d, 6]} and elevation {elevationIndex}")
+            '''
+
+            curResultIndex += 1
+            print(f"GT boxes:")
+            for box in gt_instances["boxes"]:
+                print(f"{box[0]}, {box[1]}, {box[2]}")
 
             if calculateErrors:
                 for tIndex in range(len(thresholds)):
@@ -303,7 +322,7 @@ def main():
 
                     #print(f"Ground truths on {sequence_num}:")
                     for box in gt_instances["boxes"]:
-                        cart = rad_to_cartesian(box[0],
+                        cart = rad_to_cartesian(box[0] - distDisplace,
                                                 box[1],
                                                 config_radar["azimuth_size"],
                                                 config_radar["range_resolution"],
@@ -333,7 +352,24 @@ def main():
                         if costMatrix[a[0], a[1]] > 99: # No assignment found
                             missedDetections[tIndex] += 1
                         else:
-                            distanceSqErrors[tIndex].append(costMatrix[a[0], a[1]])
+                            distanceSqErrors[tIndex].append(
+                                costMatrix[a[0], a[1]])
+
+                            print(
+                                f"For an object with prob {nms_pred[a[1], 6]} distance calculated "
+                                f"{nms_pred[a[1], 0]} while gt {gt_instances['boxes'][a[0]][0]}")
+                            difference_range = config_radar['range_resolution'] * np.abs(
+                                gt_instances['boxes'][a[0]][0] - (nms_pred[a[1], 0]))
+                            print(f"Adding the range error {difference_range}")
+
+                            rangeErrors[tIndex].append(config_radar["range_resolution"] * np.abs(
+                                gt_instances["boxes"][a[0]][0] - (nms_pred[a[1], 0])))
+
+                            angleErrors[tIndex].append(config_radar["angular_resolution"] * np.abs(
+                                gt_instances["boxes"][a[0]][1] - nms_pred[a[1], 1]))
+
+                            velocityErrors[tIndex].append(config_radar["velocity_resolution"] * np.abs(
+                                gt_instances["boxes"][a[0]][2] - nms_pred[a[1], 2]))
                     
                     if len(cartesianDetections) > len(cartesianGt):
                         #print(f"There are false detections. len(cartesianDetections) {len(cartesianDetections)}, len(cartesianGt) {len(cartesianGt)}")
@@ -404,13 +440,25 @@ def main():
                                                     np.mean(model_cart_st))
         if calculateErrors:
             for tInd in range(len(thresholds)):
-                reportName = f"errors_{thresholds[tInd]:.2}.txt"
+                reportName = f"errors/errors_{thresholds[tInd]:.2}.txt"
                 with open(reportName, "w") as f:
                     f.write(str(distanceSqErrors[tInd]) + "\n")
+                    f.write(str(rangeErrors[tInd]) + "\n")
+                    f.write(str(angleErrors[tInd]) + "\n")
+                    f.write(str(velocityErrors[tInd]) + "\n")
                     f.write(f"Missed: {missedDetections[tInd]}\n")
                     f.write(f"False: {falseDetections[tInd]}\n")
                     mse = np.sum(distanceSqErrors[tInd]) / len(distanceSqErrors[tInd])
                     f.write(f"MSE: {mse}\n")
+
+                    avgRangeError = np.sum(rangeErrors[tInd]) / len(rangeErrors[tInd])
+                    f.write(f"Range error: {avgRangeError}\n")
+
+                    avgAzimuthError = np.sum(angleErrors[tInd]) / len(angleErrors[tInd])
+                    f.write(f"Azimuth error: {avgAzimuthError}\n")
+
+                    avgVelError = np.sum(velocityErrors[tInd]) / len(velocityErrors[tInd])
+                    f.write(f"Velocity error: {avgVelError}\n")
         else:
             print(f"Detected on empty: {detectedOnEmpty}")
             print(f"Detected on empty per frame: {detectedOnEmptyPerFrame}")
@@ -421,8 +469,8 @@ def main():
         print(f"globalEndsList: {globalEndsList}")
     ### NOTE: inference starting from here ###
     all_original_files = config_inference["original_videos_pattern"]
-    showSynchronizedVideo = True
-    calculateErrors = True
+    showSynchronizedVideo = False
+    calculateErrors = False
     inferencePlotting(all_original_files, showSynchronizedVideo, calculateErrors)
 
 
