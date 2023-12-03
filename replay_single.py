@@ -7,10 +7,9 @@ os.environ["CUDA_VISIBLE_DEVICES"]="0"
 import cv2
 import numpy as np
 import tensorflow as tf
-import tensorflow.keras as K
-import matplotlib.pyplot as plt
 import time
 import sys
+import json
 
 import shutil
 from glob import glob
@@ -27,25 +26,6 @@ import util.drawer as drawer
 
 from PyQt5 import QtCore, QtGui
 from PyQt5.QtWidgets import *
-
-
-# Case 1: Don't have synchronization data. Have to assume that video starts with the radar data
-# Case 2: Have synchronization data. Keep two variables: radar start, video start.
-#   One of them will be 0 and the other will express the difference between the latest started type
-#   (e.g. camera recording started later, so camera) and current type (e.g. radar) in periods of the
-#   current type. For example: camera started 300 ms later than the radar; video start = 0; radar start
-#   is 300 // 11 = 27
-#   later in its periods. 
-# All sliders should work based on the radar data samples
-
-chirpPeriod = 11 # ms
-videoPeriod = 50 # ms, TODO: Get it from the video itself
-videoStartIndex = 0 # index
-radarStartIndex = 0 # index
-
-def videoIndexFromRadar(radarIndex):
-    radarIndex = max(radarIndex, radarStartIndex)
-    return (radarIndex - radarStartIndex) * chirpPeriod // videoPeriod + videoStartIndex
 
 # A custom class for the image area. Maybe we can use Qt drawing primitives instead of OpenCV
 class CustomImage(QWidget):
@@ -88,7 +68,7 @@ class ApplicationWindow(QMainWindow):
         self.createControls()
 
         self.playing = False
-        self.jumpby = 100 # In radar samples
+        self.jumpby = 10 # In radar data slides
         self.usesBpm = True
         self.useTracking = False
 
@@ -102,6 +82,19 @@ class ApplicationWindow(QMainWindow):
         self.slide = 32
         self.totalRadarFrames = 0
         self.totalVideoFrames = 0
+        self.rawDataPath = ""
+
+        self.chirpPeriod = 11 # ms
+        self.videoPeriod = 50 # ms, TODO: Get it from the video itself
+        self.videoStartIndex = 0 # index
+        self.radarStartIndex = 0 # index
+
+        self.loadDefaultSynchronizationData()
+
+    def videoIndexFromRadar(self, radarIndex):
+        radarIndex = max(radarIndex, self.radarStartIndex)
+        print(f"In videoIndexFromRadar() self.radarStartIndex {self.radarStartIndex}, self.videoStartIndex {self.videoStartIndex}")
+        return (radarIndex - self.radarStartIndex) * self.chirpPeriod // self.videoPeriod + self.videoStartIndex
 
     def updateSlider(self, value):
         if not self.video.isOpened():
@@ -114,7 +107,7 @@ class ApplicationWindow(QMainWindow):
         total = self.radarDataLoader.get_total_samples()
         newIndex = total * value // value
         self.radarDataLoader.set_frame_index(newIndex)
-        self.video.set(cv2.CAP_PROP_POS_FRAMES, videoIndexFromRadar(newIndex*self.radarDataLoader.get_shift_per_sample()))
+        self.video.set(cv2.CAP_PROP_POS_FRAMES, self.videoIndexFromRadar(newIndex*self.radarDataLoader.get_shift_per_sample()))
 
         #total = int(self.video.get(cv2.CAP_PROP_FRAME_COUNT))
         #self.video.set(cv2.CAP_PROP_POS_FRAMES, total / 100.0 * value)
@@ -128,6 +121,9 @@ class ApplicationWindow(QMainWindow):
 
         if filename:
             print(f"File {filename} was selected as a radar synchronization data file")
+            with open(filename, 'r') as f:
+                self.radarAnnotations = json.load(f)
+                self.hasRadarAnnotations = True
 
     def loadVideoSynchronizationData(self):
         options = QFileDialog.Options()
@@ -136,6 +132,17 @@ class ApplicationWindow(QMainWindow):
 
         if filename:
             print(f"File {filename} was selected as a video synchronization data file")
+            with open(filename, 'r') as f:
+                self.videoAnnotations = json.load(f)
+                self.hasVideoAnnotations = True
+
+    def loadDefaultSynchronizationData(self):
+        with open("annotated.json", 'r') as f:
+            self.videoAnnotations = json.load(f)
+            self.hasVideoAnnotations = True
+        with open("radar_annotated.json", 'r') as f:
+            self.radarAnnotations = json.load(f)
+            self.hasRadarAnnotations = True
 
     # Load something other than current configured network
     def loadNetwork(self):
@@ -151,12 +158,14 @@ class ApplicationWindow(QMainWindow):
         options |= QFileDialog.DontUseNativeDialog
         path, _ = QFileDialog.getOpenFileName(self, "Select radar raw file", "","(*.raw)", options=options)
 
+        self.rawDataPath = path
         videoFound = False
         # TODO: Allow to play without the matching video
         if path:
             print(f"Selected raw radar data {path}")
             lastDirIndex = path.rfind('/')
             filename = path[lastDirIndex + 1:]
+            self.currentRadarFilename = filename
 
             rawExtensionIndex = filename.rfind('.raw')
             if rawExtensionIndex < 0:
@@ -180,6 +189,9 @@ class ApplicationWindow(QMainWindow):
             self.totalRadarFrames = self.radarDataLoader.get_total_samples()
             print(f"Opened radar file with {self.totalRadarFrames} frames")
 
+            # Video annotations are created based on "wall" video
+            self.currentVideoFilename = "output_" + filename + "_wall.avi"
+
             if self.topViewRadio.isChecked():
                 filename = "output_" + filename + "_fish.avi"
             else:
@@ -197,7 +209,11 @@ class ApplicationWindow(QMainWindow):
             self.video = cv2.VideoCapture(self.videoPath)
             self.totalVideoFrames = int(self.video.get(cv2.CAP_PROP_FRAME_COUNT))
             self.video.set(cv2.CAP_PROP_POS_FRAMES, 0)
+
+            self.updateSynchronization()
+
             self.progressSlider.setValue(0)
+            self.setFrameIndex(0)
             print(f"Opened video file with {self.totalVideoFrames} frames")
             self.update()
 
@@ -217,7 +233,7 @@ class ApplicationWindow(QMainWindow):
         self.radarDataLoader.set_frame_index(frameIndex)
 
         # TODO: Check about -1, what if we calculate 0?
-        videoFrameIndex = videoIndexFromRadar(self.frameIndex*self.radarDataLoader.get_shift_per_sample())
+        videoFrameIndex = self.videoIndexFromRadar(self.frameIndex*self.radarDataLoader.get_shift_per_sample())
         print(f"Frame to set to the video {videoFrameIndex}")
         self.video.set(cv2.CAP_PROP_POS_FRAMES, videoFrameIndex - 1)
         #self.video.set(cv2.CAP_PROP_POS_FRAMES, self.frameIndex - 1)
@@ -255,7 +271,7 @@ class ApplicationWindow(QMainWindow):
         if not ret:
             if self.frameIndex > self.totalRadarFrames and self.totalRadarFrames:
                 self.frameIndex = self.totalRadarFrames - 1
-                self.video.set(cv2.CAP_PROP_POS_FRAMES, videoIndexFromRadar(self.frameIndex*self.radarDataLoader.get_shift_per_sample()) - 1)
+                self.video.set(cv2.CAP_PROP_POS_FRAMES, self.videoIndexFromRadar(self.frameIndex*self.radarDataLoader.get_shift_per_sample()) - 1)
                 ret, frame = self.video.read()
                 self.runOrStop()
                 if not ret:
@@ -398,6 +414,15 @@ class ApplicationWindow(QMainWindow):
         self.menu.addAction('&Load network', self.loadNetwork)
         self.menu.addAction('&Exit', self.close)
 
+        self.frameSlidingMenu = self.menuBar().addMenu('&Frame sliding')
+        self.frameSlidingMenu.addAction('&Set sliding default', self.slidingDefault)
+        self.frameSlidingMenu.addAction('&Set sliding half default', self.slidingHalfDefault)
+        self.frameSlidingMenu.addAction('&Set sliding 1', self.sliding1)
+        self.frameSlidingMenu.addAction('&Set sliding 2', self.sliding2)
+        self.frameSlidingMenu.addAction('&Set sliding 3', self.sliding3)
+        self.frameSlidingMenu.addAction('&Set sliding 4', self.sliding4)
+        self.frameSlidingMenu.addAction('&Set sliding 5', self.sliding5)
+
     def createStatusBar(self):
         self.statusBar = QStatusBar()
         self.setStatusBar(self.statusBar)
@@ -423,6 +448,64 @@ class ApplicationWindow(QMainWindow):
 
         self.dsinAz = c / (freq0 * self.configRadar["azimuth_size"] * d)
         self.dr = self.configRadar["range_resolution"]
+
+    def setSliding(self, value):
+        self.slide = value
+
+        if self.radarDataLoader:
+            self.radarDataLoader.set_shift_per_sample(value)
+            self.totalRadarFrames = self.radarDataLoader.get_total_samples()
+
+        self.setFrameIndex(0)
+
+    def slidingDefault(self):
+        self.setSliding(self.inputSize[2])
+
+    def slidingHalfDefault(self):
+        self.setSliding(self.inputSize[2] // 2)
+
+    def sliding1(self):
+        self.setSliding(1)
+
+    def sliding2(self):
+        self.setSliding(2)
+
+    def sliding3(self):
+        self.setSliding(3)
+
+    def sliding4(self):
+        self.setSliding(4)
+
+    def sliding5(self):
+        self.setSliding(5)
+
+    def updateSynchronization(self):
+        radarStartMs = -1
+        cameraStartMs = -1
+        if self.hasRadarAnnotations and self.hasVideoAnnotations:
+            if self.currentRadarFilename in self.radarAnnotations:
+                startRadar = self.radarAnnotations[self.currentRadarFilename]["start"]
+                print(f"Radar start for current file {startRadar} or {startRadar * self.chirpPeriod} ms")
+                radarStartMs = startRadar * self.chirpPeriod
+            else:
+                print(f"Don't have radar annotations for {self.currentRadarFilename}")
+
+            if self.currentVideoFilename in self.videoAnnotations:
+                startVideo = self.videoAnnotations[self.currentVideoFilename]["start"][0]
+                print(f"Video start for current file {startVideo} or {startVideo * self.videoPeriod} ms")
+                cameraStartMs = startVideo * self.videoPeriod
+            else:
+                print(f"Don't have video annotations for {self.currentVideoFilename}")
+        if radarStartMs == -1 or cameraStartMs == -1:
+            print("Counlddn't find one of the annotations. Can't synchronize")
+        else:
+            print(f"radarStartMs {radarStartMs} ms, cameraStartMs {cameraStartMs} ms")
+            if cameraStartMs >= radarStartMs:
+                self.radarStartIndex = 0
+                self.videoStartIndex = (cameraStartMs - radarStartMs) // self.videoPeriod
+            else:
+                self.videoStartIndex = 0
+                self.radarStartIndex = (radarStartMs - cameraStartMs) // (self.chirpPeriod * self.radarDataLoader.get_shift_per_sample())
 
 c = 0.3 # Speed of light
 d = 0.061 # Array step
@@ -558,7 +641,7 @@ def draw_detections(image, draw_area, detections, anglePadding, dr, dsin):
     zeroAt = draw_area[1] / 2
     for det in detections:
         (x, y) = rad_to_cartesian(det[0], det[1], anglePadding, dr, dsin)
-        center = (int(zeroAt + (maxRange * x)/5), int(draw_area[0] - 25 - y * maxRange / 5))
+        center = (int(zeroAt - (maxRange * x)/5), int(draw_area[0] - 25 - y * maxRange / 5))
         image = cv2.circle(image,
                            center,
                            5,
