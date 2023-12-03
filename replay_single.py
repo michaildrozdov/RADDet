@@ -17,8 +17,8 @@ from glob import glob
 from tqdm import tqdm
 
 import model.head_YOLO as yolohead
-from dataset.custom_batch_data_generator import RadarDataLoader
-from dataset.custom_batch_data_generator import RawDataLoaderEx
+from PositionFromArucoVideo.RadarDataLoader import RadarDataLoader
+from PositionFromArucoVideo.RawDataLoaderEx import RawDataLoaderEx
 import metrics.mAP as mAP
 
 import util.loader as loader
@@ -27,6 +27,25 @@ import util.drawer as drawer
 
 from PyQt5 import QtCore, QtGui
 from PyQt5.QtWidgets import *
+
+
+# Case 1: Don't have synchronization data. Have to assume that video starts with the radar data
+# Case 2: Have synchronization data. Keep two variables: radar start, video start.
+#   One of them will be 0 and the other will express the difference between the latest started type
+#   (e.g. camera recording started later, so camera) and current type (e.g. radar) in periods of the
+#   current type. For example: camera started 300 ms later than the radar; video start = 0; radar start
+#   is 300 // 11 = 27
+#   later in its periods. 
+# All sliders should work based on the radar data samples
+
+chirpPeriod = 11 # ms
+videoPeriod = 50 # ms, TODO: Get it from the video itself
+videoStartIndex = 0 # index
+radarStartIndex = 0 # index
+
+def videoIndexFromRadar(radarIndex):
+    radarIndex = max(radarIndex, radarStartIndex)
+    return (radarIndex - radarStartIndex) * chirpPeriod // videoPeriod + videoStartIndex
 
 # A custom class for the image area. Maybe we can use Qt drawing primitives instead of OpenCV
 class CustomImage(QWidget):
@@ -69,24 +88,36 @@ class ApplicationWindow(QMainWindow):
         self.createControls()
 
         self.playing = False
-        self.jumpby = 20
+        self.jumpby = 100 # In radar samples
         self.usesBpm = True
         self.useTracking = False
 
         self.timer = QtCore.QTimer(self)
-        self.timer.timeout.connect(self.update)
+        self.timer.timeout.connect(self.updateWithIncrement)
         self.resultImage = np.zeros((1, 1, 1), np.uint8)
 
         self.readConfig()
 
+        self.radarDataLoader = None
+        self.slide = 32
+        self.totalRadarFrames = 0
+        self.totalVideoFrames = 0
+
     def updateSlider(self, value):
         if not self.video.isOpened():
+            return
+        if not self.radarDataLoader:
             return
         if self.indirectSliderUpdate: # Some other code updates the slider
             return
 
-        total = int(self.video.get(cv2.CAP_PROP_FRAME_COUNT))
-        self.video.set(cv2.CAP_PROP_POS_FRAMES, total / 100.0 * value)
+        total = self.radarDataLoader.get_total_samples()
+        newIndex = total * value // value
+        self.radarDataLoader.set_frame_index(newIndex)
+        self.video.set(cv2.CAP_PROP_POS_FRAMES, videoIndexFromRadar(newIndex*self.radarDataLoader.get_shift_per_sample()))
+
+        #total = int(self.video.get(cv2.CAP_PROP_FRAME_COUNT))
+        #self.video.set(cv2.CAP_PROP_POS_FRAMES, total / 100.0 * value)
         self.update()
         self.repaint()
 
@@ -121,6 +152,7 @@ class ApplicationWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(self, "Select radar raw file", "","(*.raw)", options=options)
 
         videoFound = False
+        # TODO: Allow to play without the matching video
         if path:
             print(f"Selected raw radar data {path}")
             lastDirIndex = path.rfind('/')
@@ -136,12 +168,17 @@ class ApplicationWindow(QMainWindow):
                 # it is BPM signal
                 self.isBpmBox.setChecked(True)
                 filename = filename[:bpmIdentifierIndex]
+                self.radarDataLoader = RawDataLoaderEx(path, 3, False, self.slide)
             elif tx2IdentifierIndex >= 0:
                 self.isBpmBox.setChecked(False)
                 filename = filename[:tx2IdentifierIndex]
+                self.radarDataLoader = RawDataLoaderEx(path, 1, True, self.slide)
             else:
                 print(f"Filename is of unknown naming convention: {filename}")
                 return
+
+            self.totalRadarFrames = self.radarDataLoader.get_total_samples()
+            print(f"Opened radar file with {self.totalRadarFrames} frames")
 
             if self.topViewRadio.isChecked():
                 filename = "output_" + filename + "_fish.avi"
@@ -156,35 +193,35 @@ class ApplicationWindow(QMainWindow):
                 self.video.release()
             videoFound = True
 
-        
         if videoFound:
             self.video = cv2.VideoCapture(self.videoPath)
-            self.totalFrames = int(self.video.get(cv2.CAP_PROP_FRAME_COUNT))
+            self.totalVideoFrames = int(self.video.get(cv2.CAP_PROP_FRAME_COUNT))
             self.video.set(cv2.CAP_PROP_POS_FRAMES, 0)
             self.progressSlider.setValue(0)
-            print(f"Opened video file with {self.totalFrames} frames")
+            print(f"Opened video file with {self.totalVideoFrames} frames")
             self.update()
 
     def getFrameIndex(self):
+        self.frameIndex = self.radarDataLoader.get_frame_index()
+        '''
         temp = self.video.get(cv2.CAP_PROP_POS_FRAMES)
-
         if temp >= 0:
             self.frameIndex = int(self.video.get(cv2.CAP_PROP_POS_FRAMES))
         else:
             print(f"cv2.CAP_PROP_POS_FRAME property does not return a valid index")
-
+        '''
         return self.frameIndex
 
     def setFrameIndex(self, frameIndex):
         self.frameIndex = frameIndex
-        self.video.set(cv2.CAP_PROP_POS_FRAMES, self.frameIndex - 1)
-        '''
-        sliderPosition = int(self.video.get(cv2.CAP_PROP_POS_FRAMES) - 1 * 100.0 / self.totalFrames)
-        if sliderPosition >= 0 and sliderPosition <= 100:
-            self.indirectSliderUpdate = True
-            self.progressSlider.setValue(sliderPosition)
-            self.indirectSliderUpdate = False
-        '''
+        self.radarDataLoader.set_frame_index(frameIndex)
+
+        # TODO: Check about -1, what if we calculate 0?
+        videoFrameIndex = videoIndexFromRadar(self.frameIndex*self.radarDataLoader.get_shift_per_sample())
+        print(f"Frame to set to the video {videoFrameIndex}")
+        self.video.set(cv2.CAP_PROP_POS_FRAMES, videoFrameIndex - 1)
+        #self.video.set(cv2.CAP_PROP_POS_FRAMES, self.frameIndex - 1)
+        
         self.update()
 
     def stopAtPrev(self):
@@ -192,7 +229,7 @@ class ApplicationWindow(QMainWindow):
         self.setFrameIndex(toSet)
 
     def stopAtNext(self):
-        toSet = min(self.totalFrames - 1, self.getFrameIndex() + 1)
+        toSet = min(self.totalRadarFrames - 1, self.getFrameIndex() + 1)
         self.setFrameIndex(toSet)
 
     def jumpPrev(self):
@@ -200,35 +237,67 @@ class ApplicationWindow(QMainWindow):
         self.setFrameIndex(toSet)
 
     def jumpNext(self):
-        toSet = min(self.totalFrames - 1, self.getFrameIndex() + self.jumpby)
+        toSet = min(self.totalRadarFrames - 1, self.getFrameIndex() + self.jumpby)
         self.setFrameIndex(toSet)
 
+    def updateWithIncrement(self):
+        self.setFrameIndex(self.getFrameIndex() + 1)
+
     def update(self):
+        if not self.radarDataLoader:
+            return
         if not self.video or not self.video.isOpened():
             return
 
+        print(f"Current video frame is {self.video.get(cv2.CAP_PROP_POS_FRAMES)}")
+
         ret, frame = self.video.read()
         if not ret:
-            if self.frameIndex > self.totalFrames and self.totalFrames:
-                self.frameIndex = self.totalFrames - 1
-                self.video.set(cv2.CAP_PROP_POS_FRAME, self.frameIndex - 1)
+            if self.frameIndex > self.totalRadarFrames and self.totalRadarFrames:
+                self.frameIndex = self.totalRadarFrames - 1
+                self.video.set(cv2.CAP_PROP_POS_FRAMES, videoIndexFromRadar(self.frameIndex*self.radarDataLoader.get_shift_per_sample()) - 1)
                 ret, frame = self.video.read()
                 self.runOrStop()
                 if not ret:
                     return # Still failing
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         dim = (int(frame.shape[1] / 4), int(frame.shape[0] / 4))
-        if self.resultImage.shape[0] != dim[1]:
-            print(f"Results image resized from {self.resultImage.shape[0]}, {self.resultImage.shape[1]}")
-            self.resultImage = np.zeros((dim[1], 2 * dim[0], 3), np.uint8)
-            print(f"... to {self.resultImage.shape[0]}, {self.resultImage.shape[1]}")
-            
+
+        self.resultImage = np.zeros((dim[1], 2 * dim[0], 3), np.uint8)    
 
         self.resultImage[:, dim[0]:, :] = cv2.resize(frame, dim)
         draw_radar_axes(self.resultImage,
                         (self.resultImage.shape[0], self.resultImage.shape[1] / 2),
                         (270 - self.maxAzimuth, 270 + self.maxAzimuth))
-        #draw_detections(resultImage, (resultImage.shape[0], resultImage.shape[1] / 2), nms_pred, dsinAz)
+        
+        RAD, RED, dummyGt = self.radarDataLoader.produce_frame()
+
+        RAD = np.log(np.abs(RAD) + 1e-9)
+        RAD = (RAD - self.configData["global_mean_log"]) / self.configData["global_variance_log"]
+        data = tf.expand_dims(tf.constant(RAD, dtype=tf.float32), axis=0)
+
+        if data != None and self.network != None:
+            print("Have some data!")
+            feature = modelAsGraph(self.network, data)
+
+            pred_raw, pred = yolohead.boxDecoder(feature, self.inputSize, \
+                self.anchorBoxes, self.numClasses, self.yoloheadXyzScales[0])
+  
+            pred_frame = pred[0]
+            predicitons = helper.yoloheadToPredictions(pred_frame, \
+                                    conf_threshold=self.configEvaluate["confidence_threshold"])
+
+            nms_pred = helper.nms(predicitons, \
+                                    self.configInference["nms_iou3d_threshold"], \
+                                    self.configModel["input_shape"], \
+                                    sigma=0.3, method="nms")
+
+            draw_detections(self.resultImage,
+                            (self.resultImage.shape[0], self.resultImage.shape[1] / 2),
+                            nms_pred,
+                            self.configRadar["azimuth_size"],
+                            self.dr,
+                            self.dsinAz)
 
         image = QtGui.QImage(self.resultImage,
                              self.resultImage.shape[1],
@@ -241,7 +310,8 @@ class ApplicationWindow(QMainWindow):
 
         self.videoFrame.setImage(image)
 
-        sliderPosition = int(self.video.get(cv2.CAP_PROP_POS_FRAMES) - 1 * 100.0 / self.totalFrames)
+        #sliderPosition = int(self.video.get(cv2.CAP_PROP_POS_FRAMES) - 1 * 100.0 / self.totalFrames)
+        sliderPosition = self.radarDataLoader.get_frame_index() * 100 // self.totalRadarFrames
         if sliderPosition >= 0 and sliderPosition <= 100:
             self.indirectSliderUpdate = True
             self.progressSlider.setValue(sliderPosition)
@@ -345,6 +415,14 @@ class ApplicationWindow(QMainWindow):
         self.maxAzimuth = self.configRadar["azimuth_size"] * self.configRadar["angular_resolution"] * 90.0 / np.pi
         self.network = tf.saved_model.load("model_b_" + str(self.configTrain["batch_size"]) + \
                    "lr_" + str(self.configTrain["learningrate_init"]))
+
+        self.inputSize = list(self.configModel["input_shape"]) # TODO: get this from the model input instead
+        self.anchorBoxes = loader.readAnchorBoxes() # load anchor boxes with order
+        self.numClasses = len(self.configData["all_classes"])
+        self.yoloheadXyzScales = self.configModel["yolohead_xyz_scales"]
+
+        self.dsinAz = c / (freq0 * self.configRadar["azimuth_size"] * d)
+        self.dr = self.configRadar["range_resolution"]
 
 c = 0.3 # Speed of light
 d = 0.061 # Array step
@@ -474,7 +552,21 @@ def draw_half_circle_rounded(image, draw_area, angles, radius):
                 color=(255, 255, 255),
                 thickness=thickness)
 
-def draw_detections(image, draw_area, detections, dsin):
+def draw_detections(image, draw_area, detections, anglePadding, dr, dsin):
+    print(f"Drawing:\n{detections}")
+    maxRange = draw_area[0] - 50
+    zeroAt = draw_area[1] / 2
+    for det in detections:
+        (x, y) = rad_to_cartesian(det[0], det[1], anglePadding, dr, dsin)
+        center = (int(zeroAt + (maxRange * x)/5), int(draw_area[0] - 25 - y * maxRange / 5))
+        image = cv2.circle(image,
+                           center,
+                           5,
+                           color=(255,60,60),
+                           thickness = 2)
+        drawLoc = (center[0] + 10, center[1] - 10)
+        image = cv2.putText(image, f'{det[6]:0.2f}', drawLoc, cv2.FONT_HERSHEY_SIMPLEX,  
+                   fontScale=0.5, color=(255,60,60), thickness=1, lineType=cv2.LINE_AA) 
     return image
 
 @tf.function
