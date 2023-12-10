@@ -485,8 +485,11 @@ class ApplicationWindow(QMainWindow):
         if self.hasRadarAnnotations and self.hasVideoAnnotations:
             if self.currentRadarFilename in self.radarAnnotations:
                 startRadar = self.radarAnnotations[self.currentRadarFilename]["start"]
-                print(f"Radar start for current file {startRadar} or {startRadar * self.chirpPeriod} ms")
-                radarStartMs = startRadar * self.chirpPeriod
+                radarAnnotationPeriod = self.chirpPeriod
+                if self.usesBpm:
+                    radarAnnotationPeriod = 3 * self.chirpPeriod
+                print(f"Radar start for current file {startRadar} or {radarAnnotationPeriod} ms")
+                radarStartMs = startRadar * radarAnnotationPeriod
             else:
                 print(f"Don't have radar annotations for {self.currentRadarFilename}")
 
