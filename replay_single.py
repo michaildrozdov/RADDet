@@ -18,6 +18,9 @@ from tqdm import tqdm
 import model.head_YOLO as yolohead
 from PositionFromArucoVideo.RadarDataLoader import RadarDataLoader
 from PositionFromArucoVideo.RawDataLoaderEx import RawDataLoaderEx
+from PythonRadarTracker.tracker import Tracker
+from PythonRadarTracker.radar_data import RadarData
+
 import metrics.mAP as mAP
 
 import util.loader as loader
@@ -90,10 +93,11 @@ class ApplicationWindow(QMainWindow):
         self.radarStartIndex = 0 # index
 
         self.loadDefaultSynchronizationData()
+        self.tracker = Tracker(0.5) # Average sensitivity
+        self.distDisplace = 8 # Our free parameter due to cables (?) in indices
 
     def videoIndexFromRadar(self, radarIndex):
         radarIndex = max(radarIndex, self.radarStartIndex)
-        print(f"In videoIndexFromRadar() self.radarStartIndex {self.radarStartIndex}, self.videoStartIndex {self.videoStartIndex}")
         return (radarIndex - self.radarStartIndex) * self.chirpPeriod // self.videoPeriod + self.videoStartIndex
 
     def updateSlider(self, value):
@@ -234,7 +238,6 @@ class ApplicationWindow(QMainWindow):
 
         # TODO: Check about -1, what if we calculate 0?
         videoFrameIndex = self.videoIndexFromRadar(self.frameIndex*self.radarDataLoader.get_shift_per_sample())
-        print(f"Frame to set to the video {videoFrameIndex}")
         self.video.set(cv2.CAP_PROP_POS_FRAMES, videoFrameIndex - 1)
         #self.video.set(cv2.CAP_PROP_POS_FRAMES, self.frameIndex - 1)
         
@@ -265,8 +268,6 @@ class ApplicationWindow(QMainWindow):
         if not self.video or not self.video.isOpened():
             return
 
-        print(f"Current video frame is {self.video.get(cv2.CAP_PROP_POS_FRAMES)}")
-
         ret, frame = self.video.read()
         if not ret:
             if self.frameIndex > self.totalRadarFrames and self.totalRadarFrames:
@@ -293,7 +294,6 @@ class ApplicationWindow(QMainWindow):
         data = tf.expand_dims(tf.constant(RAD, dtype=tf.float32), axis=0)
 
         if data != None and self.network != None:
-            print("Have some data!")
             feature = modelAsGraph(self.network, data)
 
             pred_raw, pred = yolohead.boxDecoder(feature, self.inputSize, \
@@ -308,12 +308,38 @@ class ApplicationWindow(QMainWindow):
                                     self.configModel["input_shape"], \
                                     sigma=0.3, method="nms")
 
-            draw_detections(self.resultImage,
+            if self.useTracking:
+                # Do tracking
+                dataFrame = []
+                for detection in nms_pred:
+                    confidence = detection[6]
+                    r = (detection[0]-self.distDisplace) * self.dr
+                    velocity = (detection[2] - self.dopplerPadding / 2) * self.dvel
+                    if self.usesBpm:
+                        velocity /= 3.0
+                    azimuth = np.arcsin(
+                        (detection[1] - self.azPadding / 2) * self.dsinAz) * 180 / np.pi
+                    elevation = 0.0
+
+                    #print(f"Adding r={r:0.2f}, velocity={velocity:0.2f}, azimuth={azimuth:0.2f}")
+                    dataFrame.append(RadarData(r, velocity, np.radians(azimuth), np.radians(elevation), confidence))
+                dt = self.chirpPeriod * self.radarDataLoader.get_shift_per_sample() / 1000.0
+                self.tracker.update(dataFrame, dt)
+
+                # Draw tracks
+                activeTracks = self.tracker.get_active_tracks()
+                draw_tracks(self.resultImage,
                             (self.resultImage.shape[0], self.resultImage.shape[1] / 2),
-                            nms_pred,
-                            self.configRadar["azimuth_size"],
-                            self.dr,
-                            self.dsinAz)
+                            activeTracks)
+
+            else:
+                draw_detections(self.resultImage,
+                                (self.resultImage.shape[0], self.resultImage.shape[1] / 2),
+                                nms_pred,
+                                self.azPadding,
+                                self.dr,
+                                self.dsinAz,
+                                self.distDisplace)
 
         image = QtGui.QImage(self.resultImage,
                              self.resultImage.shape[1],
@@ -359,6 +385,7 @@ class ApplicationWindow(QMainWindow):
 
         self.trackingSensitivitySlider = QSlider(QtCore.Qt.Horizontal, self.controls)
         self.trackingSensitivitySlider.setValue(90)
+        self.trackingSensitivitySlider.valueChanged.connect(self.updateTrackingSensitivity)
 
         self.isBpmBox = QCheckBox('Is BPM', parent=self.controls)
         self.isBpmBox.setChecked(True)
@@ -406,6 +433,10 @@ class ApplicationWindow(QMainWindow):
     def updateUseTracking(self, value):
         self.useTracking = value
 
+        if value:
+            print(f"Creating a tracker with sensitivity {self.trackingSensitivitySlider.value() / 100.0}")
+            self.tracker = Tracker(self.trackingSensitivitySlider.value() / 100.0)
+
     def createMenu(self):
         self.menu = self.menuBar().addMenu('&Menu')
         self.menu.addAction('&Load radar data', self.openRadarRaw)
@@ -448,6 +479,10 @@ class ApplicationWindow(QMainWindow):
 
         self.dsinAz = c / (freq0 * self.configRadar["azimuth_size"] * d)
         self.dr = self.configRadar["range_resolution"]
+        self.dvel = self.configRadar["velocity_resolution"]
+
+        self.azPadding = self.configRadar["azimuth_size"]
+        self.dopplerPadding = self.configRadar["doppler_size"]
 
     def setSliding(self, value):
         self.slide = value
@@ -510,6 +545,12 @@ class ApplicationWindow(QMainWindow):
                 self.videoStartIndex = 0
                 self.radarStartIndex = (radarStartMs - cameraStartMs) // (self.chirpPeriod * self.radarDataLoader.get_shift_per_sample())
 
+    def updateTrackingSensitivity(self, value):
+        # TODO: Just pass the new sensitivity to rearrange thresholds without clearing the tracking state
+        print(f"Creating a tracker with sensitivity {self.trackingSensitivitySlider.value() / 100.0}")
+        self.tracker = Tracker(self.trackingSensitivitySlider.value() / 100.0)
+
+
 c = 0.3 # Speed of light
 d = 0.061 # Array step
 freq0 = 3.1 # Frequency start
@@ -518,6 +559,11 @@ def rad_to_cartesian(rangeIndex, angleIndex, anglePadding, dr, dSinAz):
     r = rangeIndex * dr
     a = np.arcsin((angleIndex - anglePadding/2) * dSinAz)
 
+    x = r * np.sin(a)
+    y = r * np.cos(a)
+    return (x, y)
+
+def rad_to_cartesian_simple(r, a):
     x = r * np.sin(a)
     y = r * np.cos(a)
     return (x, y)
@@ -638,12 +684,12 @@ def draw_half_circle_rounded(image, draw_area, angles, radius):
                 color=(255, 255, 255),
                 thickness=thickness)
 
-def draw_detections(image, draw_area, detections, anglePadding, dr, dsin):
+def draw_detections(image, draw_area, detections, anglePadding, dr, dsin, distDisplace=0):
     print(f"Drawing:\n{detections}")
     maxRange = draw_area[0] - 50
     zeroAt = draw_area[1] / 2
     for det in detections:
-        (x, y) = rad_to_cartesian(det[0], det[1], anglePadding, dr, dsin)
+        (x, y) = rad_to_cartesian(det[0] - distDisplace, det[1], anglePadding, dr, dsin)
         center = (int(zeroAt - (maxRange * x)/5), int(draw_area[0] - 25 - y * maxRange / 5))
         image = cv2.circle(image,
                            center,
@@ -652,6 +698,23 @@ def draw_detections(image, draw_area, detections, anglePadding, dr, dsin):
                            thickness = 2)
         drawLoc = (center[0] + 10, center[1] - 10)
         image = cv2.putText(image, f'{det[6]:0.2f}', drawLoc, cv2.FONT_HERSHEY_SIMPLEX,  
+                   fontScale=0.5, color=(255,60,60), thickness=1, lineType=cv2.LINE_AA) 
+    return image
+
+def draw_tracks(image, draw_area, tracks):
+    maxRange = draw_area[0] - 50
+    zeroAt = draw_area[1] / 2
+    for track in tracks:
+        state = track.state
+        (x, y) = rad_to_cartesian_simple(state[0], state[2]) # In the track state azimuth has index 2
+        center = (int(zeroAt - (maxRange * x)/5), int(draw_area[0] - 25 - y * maxRange / 5))
+        image = cv2.circle(image,
+                           center,
+                           5,
+                           color=(255,60,60),
+                           thickness = 2)
+        drawLoc = (center[0] + 10, center[1] - 10)
+        image = cv2.putText(image, f'{track.get_average_confidence():0.2f}', drawLoc, cv2.FONT_HERSHEY_SIMPLEX,  
                    fontScale=0.5, color=(255,60,60), thickness=1, lineType=cv2.LINE_AA) 
     return image
 
