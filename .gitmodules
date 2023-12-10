@@ -4,3 +4,6 @@
 [submodule "neuralnet"]
 	path = neuralnet
 	url = https://gitlab.com/sudoLife/neuralnet.git
+[submodule "PythonRadarTracker"]
+	path = PythonRadarTracker
+	url = https://gitlab.com/michail.drozdov/python-radar-tracker.git
