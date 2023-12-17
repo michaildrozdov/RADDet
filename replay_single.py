@@ -85,7 +85,6 @@ class ApplicationWindow(QMainWindow):
         self.slide = 32
         self.totalRadarFrames = 0
         self.totalVideoFrames = 0
-        self.rawDataPath = ""
 
         self.chirpPeriod = 11 # ms
         self.videoPeriod = 50 # ms, TODO: Get it from the video itself
@@ -95,6 +94,9 @@ class ApplicationWindow(QMainWindow):
         self.loadDefaultSynchronizationData()
         self.tracker = Tracker(0.5) # Average sensitivity
         self.distDisplace = 8 # Our free parameter due to cables (?) in indices
+        self.usingIntermediate = False # Ignore the video reader or the synchronization data as
+                                       # the data loader will provide matching frames.
+        self.justFinishedData = False
 
     def videoIndexFromRadar(self, radarIndex):
         radarIndex = max(radarIndex, self.radarStartIndex)
@@ -162,7 +164,6 @@ class ApplicationWindow(QMainWindow):
         options |= QFileDialog.DontUseNativeDialog
         path, _ = QFileDialog.getOpenFileName(self, "Select radar raw file", "","(*.raw)", options=options)
 
-        self.rawDataPath = path
         videoFound = False
         # TODO: Allow to play without the matching video
         if path:
@@ -210,6 +211,7 @@ class ApplicationWindow(QMainWindow):
             videoFound = True
 
         if videoFound:
+            self.usingIntermediate = False
             self.video = cv2.VideoCapture(self.videoPath)
             self.totalVideoFrames = int(self.video.get(cv2.CAP_PROP_FRAME_COUNT))
             self.video.set(cv2.CAP_PROP_POS_FRAMES, 0)
@@ -220,6 +222,61 @@ class ApplicationWindow(QMainWindow):
             self.setFrameIndex(0)
             print(f"Opened video file with {self.totalVideoFrames} frames")
             self.update()
+
+    def openRadarIntermediate(self):
+        options = QFileDialog.Options()
+        options |= QFileDialog.DontUseNativeDialog
+        path, _ = QFileDialog.getOpenFileName(self, "Select radar intermediate data file", "","(*.npy)", options=options)
+
+        if path:
+            print(f"Selected intermediate radar data {path}")
+            lastDirIndex = path.rfind('/')
+            filename = path[lastDirIndex + 1:]
+
+            tx2IdentifierIndex = filename.rfind('_tx2')
+            extensionIndex = filename.rfind('.npy')
+            if tx2IdentifierIndex < 0 or extensionIndex < 0:
+                print(f"Wrong file when loading the intermediate data '{path}'")
+                return
+
+            filename = filename[:tx2IdentifierIndex]
+            print(f"Got filename as date '{filename}'")
+            if filename + '_tx2.raw' in self.radarAnnotations:
+                self.currentRadarFilename = filename + '_tx2.raw'
+            elif filename + '_bpm.raw' in self.radarAnnotations:
+                self.currentRadarFilename = filename + '_bpm.raw'
+
+            # RadarDataLoader always loads the wall camera video
+            self.currentVideoFilename = "output_" + filename + "_wall.avi"
+            self.videoPath = path[:lastDirIndex] + "/" + self.currentVideoFilename
+            print(f"Full video path {self.videoPath}")
+
+            self.radarDataLoader = RadarDataLoader(self.videoPath,
+                                                   1.0 / self.slide,
+                                                   self.dopplerPadding,
+                                                   2,
+                                                   samplesToLoad=15000,
+                                                   randomize=False,
+                                                   showSynchronizedVideo=True,
+                                                   finishedFileCallback=self.finishDataLoading)
+            self.radarDataLoader.logLevel = 2
+
+            self.totalRadarFrames = self.radarDataLoader.get_total_samples()
+            self.usingIntermediate = True
+            self.video = cv2.VideoCapture(self.videoPath)
+            self.totalVideoFrames = int(self.video.get(cv2.CAP_PROP_FRAME_COUNT))
+            self.video.set(cv2.CAP_PROP_POS_FRAMES, 0)
+
+            # Should not be needed
+            #self.updateSynchronization()
+
+            self.progressSlider.setValue(0)
+            self.setFrameIndex(0)
+            self.update()
+
+    def finishDataLoading(self):
+        print("Calling the finishDataLoading callback")
+        self.justFinishedData = True
 
     def getFrameIndex(self):
         self.frameIndex = self.radarDataLoader.get_frame_index()
@@ -265,10 +322,21 @@ class ApplicationWindow(QMainWindow):
     def update(self):
         if not self.radarDataLoader:
             return
-        if not self.video or not self.video.isOpened():
+        if not self.video or not self.video.isOpened() and not self.usingIntermediate:
             return
 
-        ret, frame = self.video.read()
+        gtCenters = []
+        if self.usingIntermediate:
+            RAD, gt, frame = next(self.radarDataLoader.yield_next_data())
+            isBpm = self.radarDataLoader.is_bpm() # This loader only provides this flag after
+                                                  # at least one frame is created by it.
+            self.isBpmBox.setChecked(isBpm)
+            for box in gt["boxes"]:
+                gtCenters.append((box[0], box[1], box[2]))
+            ret = True
+        else:
+            ret, frame = self.video.read()
+            
         if not ret:
             if self.frameIndex > self.totalRadarFrames and self.totalRadarFrames:
                 self.frameIndex = self.totalRadarFrames - 1
@@ -287,7 +355,10 @@ class ApplicationWindow(QMainWindow):
                         (self.resultImage.shape[0], self.resultImage.shape[1] / 2),
                         (270 - self.maxAzimuth, 270 + self.maxAzimuth))
         
-        RAD, RED, dummyGt = self.radarDataLoader.produce_frame()
+        videoFrame = np.array([])
+        
+        if not self.usingIntermediate:
+            RAD, RED, dummyGt = self.radarDataLoader.produce_frame()
 
         RAD = np.log(np.abs(RAD) + 1e-9)
         RAD = (RAD - self.configData["global_mean_log"]) / self.configData["global_variance_log"]
@@ -340,6 +411,14 @@ class ApplicationWindow(QMainWindow):
                                 self.dr,
                                 self.dsinAz,
                                 self.distDisplace)
+        if len(gtCenters):
+            draw_gt(self.resultImage,
+                    (self.resultImage.shape[0], self.resultImage.shape[1] / 2),
+                    gtCenters,
+                    self.azPadding,
+                    self.dr,
+                    self.dsinAz,
+                    self.distDisplace)
 
         image = QtGui.QImage(self.resultImage,
                              self.resultImage.shape[1],
@@ -353,7 +432,11 @@ class ApplicationWindow(QMainWindow):
         self.videoFrame.setImage(image)
 
         #sliderPosition = int(self.video.get(cv2.CAP_PROP_POS_FRAMES) - 1 * 100.0 / self.totalFrames)
-        sliderPosition = self.radarDataLoader.get_frame_index() * 100 // self.totalRadarFrames
+        if self.justFinishedData:
+            sliderPosition = 0
+            self.justFinishedData = False
+        else:
+            sliderPosition = self.radarDataLoader.get_frame_index() * 100 // self.totalRadarFrames
         if sliderPosition >= 0 and sliderPosition <= 100:
             self.indirectSliderUpdate = True
             self.progressSlider.setValue(sliderPosition)
@@ -389,6 +472,7 @@ class ApplicationWindow(QMainWindow):
 
         self.isBpmBox = QCheckBox('Is BPM', parent=self.controls)
         self.isBpmBox.setChecked(True)
+        self.isBpmBox.setEnabled(False)
         self.isBpmBox.stateChanged.connect(self.updateIsBpm)
 
         self.useTrackingBox = QCheckBox('Use tracking', parent=self.controls)
@@ -440,6 +524,7 @@ class ApplicationWindow(QMainWindow):
     def createMenu(self):
         self.menu = self.menuBar().addMenu('&Menu')
         self.menu.addAction('&Load radar data', self.openRadarRaw)
+        self.menu.addAction('&Load from intermediate', self.openRadarIntermediate)
         self.menu.addAction('&Load radar synchronization', self.loadRadarSynchronizationData)
         self.menu.addAction('&Load video synchronization', self.loadVideoSynchronizationData)
         self.menu.addAction('&Load network', self.loadNetwork)
@@ -699,6 +784,20 @@ def draw_detections(image, draw_area, detections, anglePadding, dr, dsin, distDi
         drawLoc = (center[0] + 10, center[1] - 10)
         image = cv2.putText(image, f'{det[6]:0.2f}', drawLoc, cv2.FONT_HERSHEY_SIMPLEX,  
                    fontScale=0.5, color=(255,60,60), thickness=1, lineType=cv2.LINE_AA) 
+    return image
+
+def draw_gt(image, draw_area, gtCenters, anglePadding, dr, dsin, distDisplace=0):
+    maxRange = draw_area[0] - 50
+    zeroAt = draw_area[1] / 2
+    for gt in gtCenters:
+        (x, y) = rad_to_cartesian(gt[0] - distDisplace, gt[1], anglePadding, dr, dsin)
+        center = (int(zeroAt - (maxRange * x)/5), int(draw_area[0] - 25 - y * maxRange / 5))
+        image = cv2.circle(image,
+                           center,
+                           5,
+                           color=(60,60,255),
+                           thickness = 2)
+        drawLoc = (center[0] + 10, center[1] - 10)
     return image
 
 def draw_tracks(image, draw_area, tracks):
