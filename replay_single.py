@@ -29,6 +29,31 @@ import util.drawer as drawer
 
 from PyQt5 import QtCore, QtGui
 from PyQt5.QtWidgets import *
+from threading import Thread
+
+RETRY_PERIOD = 250 # ms
+
+def load_network(instance, path):
+    print(f"Loading network: {path}")
+    instance.network = tf.saved_model.load(path)
+
+def load_raw_data(instance, path, txnum, slide):
+    print(f"Loading raw data: {path}")
+    instance.radarDataLoader = RawDataLoaderEx(path, txnum, txnum==1, slide)
+
+def load_intermediate(instance):
+    print(f"Loading intermediate data: {instance.videoPath}")
+    instance.radarDataLoader = RadarDataLoader(instance.videoPath,
+                                            1.0 / instance.slide,
+                                            instance.dopplerPadding,
+                                            2,
+                                            samplesToLoad=15000,
+                                            randomize=False,
+                                            showSynchronizedVideo=True,
+                                            finishedFileCallback=instance.finishDataLoading)
+    instance.radarDataLoader.logLevel = 2
+
+    instance.totalRadarFrames = instance.radarDataLoader.get_total_samples()
 
 # A custom class for the image area. Maybe we can use Qt drawing primitives instead of OpenCV
 class CustomImage(QWidget):
@@ -97,6 +122,19 @@ class ApplicationWindow(QMainWindow):
         self.usingIntermediate = False # Ignore the video reader or the synchronization data as
                                        # the data loader will provide matching frames.
         self.justFinishedData = False
+        self.loadingLabel = QLabel(self.scrollArea)
+        self.loadingMovie = QtGui.QMovie("./images/giphy.gif")
+        self.loadingLabel.setGeometry(720, 180, 480, 400)
+        self.loadingLabel.setMovie(self.loadingMovie)
+        self.network = None
+
+        self.loadingTimer = QtCore.QTimer(self)
+        self.loadingTimer.timeout.connect(self.networkLoaded)
+        self.dataLoadingTimer = QtCore.QTimer(self)
+        self.dataLoadingTimer.timeout.connect(self.dataLoaded)
+        self.intermediateLoadingTimer = QtCore.QTimer(self)
+        self.intermediateLoadingTimer.timeout.connect(self.intermediateLoaded)
+        self.loadDefaultNetwork()
 
     def videoIndexFromRadar(self, radarIndex):
         radarIndex = max(radarIndex, self.radarStartIndex)
@@ -154,22 +192,87 @@ class ApplicationWindow(QMainWindow):
     def loadNetwork(self):
         dir = QFileDialog.getExistingDirectory(self, "Select saved network directory")
 
-        if dir:
+        if dir and not self.networkLoadingThread.is_alive():
+            self.loadingLabel.show()
+            self.loadingMovie.start()
+            self.disablePlaying()
             print(f"Network will be loaded from {dir}")
-            self.network = tf.saved_model.load(dir)
+            self.networkLoadingThread = Thread(target=load_network, args=(self, dir,))
+            self.loadingTimer.start(RETRY_PERIOD)
+            self.networkLoadingThread.start()
+            #self.network = tf.saved_model.load(dir)
         return
+    
+    def loadDefaultNetwork(self):
+        self.loadingLabel.show()
+        self.loadingMovie.start()
+        self.disablePlaying()
+        self.networkLoadingThread = Thread(target=load_network, args=(self, "model_b_" + str(self.configTrain["batch_size"]) + \
+            "lr_" + str(self.configTrain["learningrate_init"]),))
+        self.loadingTimer.start(RETRY_PERIOD)
+        self.networkLoadingThread.start()
+        #self.network = load_network(tf.saved_model.load("model_b_" + str(self.configTrain["batch_size"]) + \
+        #           "lr_" + str(self.configTrain["learningrate_init"])))
+
+    def networkLoaded(self):
+        if not self.networkLoadingThread.is_alive():
+            self.loadingLabel.hide()
+            self.loadingMovie.stop()
+            self.loadingTimer.stop()
+            self.enablePlaying()
+
+    def intermediateLoaded(self):
+        if self.dataLoadingThread.is_alive():
+            return
+
+        self.loadingLabel.hide()
+        self.loadingMovie.stop()
+        self.intermediateLoadingTimer.stop()
+        self.setFrameIndex(0)
+        self.update()
+        self.enablePlaying()
+
+    def dataLoaded(self):
+        if self.dataLoadingThread.is_alive():
+            return
+
+        self.loadingLabel.hide()
+        self.loadingMovie.stop()
+        self.dataLoadingTimer.stop()
+
+        self.totalRadarFrames = self.radarDataLoader.get_total_samples()
+        print(f"Opened radar file with {self.totalRadarFrames} frames")
+        print(f"Final path of the video: {self.videoPath}")
+
+        if self.video.isOpened():
+            self.video.release()
+
+        self.usingIntermediate = False
+        self.video = cv2.VideoCapture(self.videoPath)
+        self.totalVideoFrames = int(self.video.get(cv2.CAP_PROP_FRAME_COUNT))
+        self.video.set(cv2.CAP_PROP_POS_FRAMES, 0)
+
+        self.updateSynchronization()
+
+        self.progressSlider.setValue(0)
+        self.setFrameIndex(0)
+        print(f"Opened video file with {self.totalVideoFrames} frames")
+        self.update()
+        self.enablePlaying()
 
     def openRadarRaw(self):
         options = QFileDialog.Options()
         options |= QFileDialog.DontUseNativeDialog
         path, _ = QFileDialog.getOpenFileName(self, "Select radar raw file", "","(*.raw)", options=options)
-
-        videoFound = False
         # TODO: Allow to play without the matching video
         if path:
+            self.loadingLabel.show()
+            self.loadingMovie.start()
+            self.disablePlaying()
+            self.lastDataPath = path
             print(f"Selected raw radar data {path}")
-            lastDirIndex = path.rfind('/')
-            filename = path[lastDirIndex + 1:]
+            self.lastDirIndex = path.rfind('/')
+            filename = path[self.lastDirIndex + 1:]
             self.currentRadarFilename = filename
 
             rawExtensionIndex = filename.rfind('.raw')
@@ -182,46 +285,32 @@ class ApplicationWindow(QMainWindow):
                 # it is BPM signal
                 self.isBpmBox.setChecked(True)
                 filename = filename[:bpmIdentifierIndex]
-                self.radarDataLoader = RawDataLoaderEx(path, 3, False, self.slide)
+                #self.radarDataLoader = RawDataLoaderEx(path, 3, False, self.slide)
+                self.dataLoadingThread = Thread(target=load_raw_data, args=(self, path, 3, self.slide,))
+                self.dataLoadingTimer.start(RETRY_PERIOD)
+                self.dataLoadingThread.start()
+
             elif tx2IdentifierIndex >= 0:
                 self.isBpmBox.setChecked(False)
                 filename = filename[:tx2IdentifierIndex]
-                self.radarDataLoader = RawDataLoaderEx(path, 1, True, self.slide)
+                #self.radarDataLoader = RawDataLoaderEx(path, 1, True, self.slide)
+                self.dataLoadingThread = Thread(target=load_raw_data, args=(self, path, 1, self.slide,))
+                self.dataLoadingTimer.start(RETRY_PERIOD)
+                self.dataLoadingThread.start()
             else:
                 print(f"Filename is of unknown naming convention: {filename}")
                 return
 
-            self.totalRadarFrames = self.radarDataLoader.get_total_samples()
-            print(f"Opened radar file with {self.totalRadarFrames} frames")
-
-            # Video annotations are created based on "wall" video
             self.currentVideoFilename = "output_" + filename + "_wall.avi"
 
+            print(f"Opened radar file with {self.totalRadarFrames} frames")
+
             if self.topViewRadio.isChecked():
-                filename = "output_" + filename + "_fish.avi"
+                self.currentVideoFilename = "output_" + filename + "_fish.avi"
             else:
-                filename = "output_" + filename + "_wall.avi"
+                self.currentVideoFilename = "output_" + filename + "_wall.avi"
 
-            self.videoPath = path[:lastDirIndex] + "/" + filename
-
-            print(f"Final path of the video: {self.videoPath}")
-
-            if self.video.isOpened():
-                self.video.release()
-            videoFound = True
-
-        if videoFound:
-            self.usingIntermediate = False
-            self.video = cv2.VideoCapture(self.videoPath)
-            self.totalVideoFrames = int(self.video.get(cv2.CAP_PROP_FRAME_COUNT))
-            self.video.set(cv2.CAP_PROP_POS_FRAMES, 0)
-
-            self.updateSynchronization()
-
-            self.progressSlider.setValue(0)
-            self.setFrameIndex(0)
-            print(f"Opened video file with {self.totalVideoFrames} frames")
-            self.update()
+            self.videoPath = path[:self.lastDirIndex] + "/" + self.currentVideoFilename
 
     def openRadarIntermediate(self):
         options = QFileDialog.Options()
@@ -229,6 +318,9 @@ class ApplicationWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(self, "Select radar intermediate data file", "","(*.npy)", options=options)
 
         if path:
+            self.loadingLabel.show()
+            self.loadingMovie.start()
+            self.disablePlaying()
             print(f"Selected intermediate radar data {path}")
             lastDirIndex = path.rfind('/')
             filename = path[lastDirIndex + 1:]
@@ -251,6 +343,11 @@ class ApplicationWindow(QMainWindow):
             self.videoPath = path[:lastDirIndex] + "/" + self.currentVideoFilename
             print(f"Full video path {self.videoPath}")
 
+            self.dataLoadingThread = Thread(target=load_intermediate, args=(self,))
+            self.intermediateLoadingTimer.start(RETRY_PERIOD)
+            self.dataLoadingThread.start()
+
+            '''
             self.radarDataLoader = RadarDataLoader(self.videoPath,
                                                    1.0 / self.slide,
                                                    self.dopplerPadding,
@@ -262,6 +359,7 @@ class ApplicationWindow(QMainWindow):
             self.radarDataLoader.logLevel = 2
 
             self.totalRadarFrames = self.radarDataLoader.get_total_samples()
+            '''
             self.usingIntermediate = True
             self.video = cv2.VideoCapture(self.videoPath)
             self.totalVideoFrames = int(self.video.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -271,8 +369,8 @@ class ApplicationWindow(QMainWindow):
             #self.updateSynchronization()
 
             self.progressSlider.setValue(0)
-            self.setFrameIndex(0)
-            self.update()
+            #self.setFrameIndex(0)
+            #self.update()
 
     def finishDataLoading(self):
         print("Calling the finishDataLoading callback")
@@ -521,6 +619,20 @@ class ApplicationWindow(QMainWindow):
             print(f"Creating a tracker with sensitivity {self.trackingSensitivitySlider.value() / 100.0}")
             self.tracker = Tracker(self.trackingSensitivitySlider.value() / 100.0)
 
+    def disablePlaying(self):
+        self.jumpBackButton.setDisabled(True)
+        self.jumpForwardButton.setDisabled(True)
+        self.playStopButton.setDisabled(True)
+        self.forwardButton.setDisabled(True)
+        self.backButton.setDisabled(True)
+
+    def enablePlaying(self):
+        self.jumpBackButton.setDisabled(False)
+        self.jumpForwardButton.setDisabled(False)
+        self.playStopButton.setDisabled(False)
+        self.forwardButton.setDisabled(False)
+        self.backButton.setDisabled(False)
+
     def createMenu(self):
         self.menu = self.menuBar().addMenu('&Menu')
         self.menu.addAction('&Load radar data', self.openRadarRaw)
@@ -554,9 +666,7 @@ class ApplicationWindow(QMainWindow):
         self.configInference = config["INFERENCE"]
 
         self.maxAzimuth = self.configRadar["azimuth_size"] * self.configRadar["angular_resolution"] * 90.0 / np.pi
-        self.network = tf.saved_model.load("model_b_" + str(self.configTrain["batch_size"]) + \
-                   "lr_" + str(self.configTrain["learningrate_init"]))
-
+        
         self.inputSize = list(self.configModel["input_shape"]) # TODO: get this from the model input instead
         self.anchorBoxes = loader.readAnchorBoxes() # load anchor boxes with order
         self.numClasses = len(self.configData["all_classes"])
@@ -620,7 +730,7 @@ class ApplicationWindow(QMainWindow):
             else:
                 print(f"Don't have video annotations for {self.currentVideoFilename}")
         if radarStartMs == -1 or cameraStartMs == -1:
-            print("Counlddn't find one of the annotations. Can't synchronize")
+            print("Couldn't find one of the annotations. Can't synchronize")
         else:
             print(f"radarStartMs {radarStartMs} ms, cameraStartMs {cameraStartMs} ms")
             if cameraStartMs >= radarStartMs:
@@ -770,7 +880,7 @@ def draw_half_circle_rounded(image, draw_area, angles, radius):
                 thickness=thickness)
 
 def draw_detections(image, draw_area, detections, anglePadding, dr, dsin, distDisplace=0):
-    print(f"Drawing:\n{detections}")
+    #print(f"Drawing:\n{detections}")
     maxRange = draw_area[0] - 50
     zeroAt = draw_area[1] / 2
     for det in detections:
@@ -983,5 +1093,4 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = ApplicationWindow()
     window.show()
-
     sys.exit(app.exec_())
