@@ -51,7 +51,7 @@ def load_intermediate(instance):
                                             randomize=False,
                                             showSynchronizedVideo=True,
                                             finishedFileCallback=instance.finishDataLoading)
-    instance.radarDataLoader.logLevel = 2
+    instance.radarDataLoader.logLevel = 3
 
     instance.totalRadarFrames = instance.radarDataLoader.get_total_samples()
 
@@ -138,7 +138,10 @@ class ApplicationWindow(QMainWindow):
 
     def videoIndexFromRadar(self, radarIndex):
         radarIndex = max(radarIndex, self.radarStartIndex)
-        return (radarIndex - self.radarStartIndex) * self.chirpPeriod // self.videoPeriod + self.videoStartIndex
+        print(f"radarIndex {radarIndex}, self.radarStartIndex {self.radarStartIndex}, self.videoStartIndex {self.videoStartIndex}, video index {(radarIndex - self.radarStartIndex) * self.chirpPeriod // self.videoPeriod + self.videoStartIndex}")
+        print(f"at original radar index 504 video should be 382")
+        return (radarIndex - self.radarStartIndex) * self.chirpPeriod \
+            // self.videoPeriod + self.videoStartIndex
 
     def updateSlider(self, value):
         if not self.video.isOpened():
@@ -250,12 +253,14 @@ class ApplicationWindow(QMainWindow):
         self.usingIntermediate = False
         self.video = cv2.VideoCapture(self.videoPath)
         self.totalVideoFrames = int(self.video.get(cv2.CAP_PROP_FRAME_COUNT))
-        self.video.set(cv2.CAP_PROP_POS_FRAMES, 0)
-
+        
         self.updateSynchronization()
 
         self.progressSlider.setValue(0)
         self.setFrameIndex(0)
+        videoFrameIndex = self.videoIndexFromRadar((self.frameIndex + 1)*self.radarDataLoader.get_shift_per_sample())
+        print(f"Calculated video frame index was {videoFrameIndex} from {self.frameIndex}")
+        self.video.set(cv2.CAP_PROP_POS_FRAMES, videoFrameIndex - 1)
         print(f"Opened video file with {self.totalVideoFrames} frames")
         self.update()
         self.enablePlaying()
@@ -392,18 +397,18 @@ class ApplicationWindow(QMainWindow):
         self.radarDataLoader.set_frame_index(frameIndex)
 
         # TODO: Check about -1, what if we calculate 0?
-        videoFrameIndex = self.videoIndexFromRadar(self.frameIndex*self.radarDataLoader.get_shift_per_sample())
+        videoFrameIndex = self.videoIndexFromRadar((self.frameIndex + 1)*self.radarDataLoader.get_shift_per_sample())
         self.video.set(cv2.CAP_PROP_POS_FRAMES, videoFrameIndex - 1)
         #self.video.set(cv2.CAP_PROP_POS_FRAMES, self.frameIndex - 1)
         
         self.update()
 
     def stopAtPrev(self):
-        toSet = max(0.0, self.getFrameIndex() - 1)
+        toSet = max(0.0, self.getFrameIndex() - 2)
         self.setFrameIndex(toSet)
 
     def stopAtNext(self):
-        toSet = min(self.totalRadarFrames - 1, self.getFrameIndex() + 1)
+        toSet = min(self.totalRadarFrames - 1, self.getFrameIndex())
         self.setFrameIndex(toSet)
 
     def jumpPrev(self):
@@ -415,13 +420,17 @@ class ApplicationWindow(QMainWindow):
         self.setFrameIndex(toSet)
 
     def updateWithIncrement(self):
-        self.setFrameIndex(self.getFrameIndex() + 1)
+        print(f"In updateWithIncrement self.frameIndex {self.frameIndex}")
+        self.setFrameIndex(self.getFrameIndex()) # No need for +1 since the loader handles this
+        print(f"In updateWithIncrement self.frameIndex(2) {self.frameIndex}")
 
     def update(self):
         if not self.radarDataLoader:
             return
         if not self.video or not self.video.isOpened() and not self.usingIntermediate:
             return
+
+        print(f"self.frameIndex at the start {self.frameIndex}")
 
         gtCenters = []
         if self.usingIntermediate:
@@ -438,7 +447,7 @@ class ApplicationWindow(QMainWindow):
         if not ret:
             if self.frameIndex > self.totalRadarFrames and self.totalRadarFrames:
                 self.frameIndex = self.totalRadarFrames - 1
-                self.video.set(cv2.CAP_PROP_POS_FRAMES, self.videoIndexFromRadar(self.frameIndex*self.radarDataLoader.get_shift_per_sample()) - 1)
+                self.video.set(cv2.CAP_PROP_POS_FRAMES, self.videoIndexFromRadar((self.frameIndex + 1)*self.radarDataLoader.get_shift_per_sample()) - 1)
                 ret, frame = self.video.read()
                 self.runOrStop()
                 if not ret:
@@ -539,6 +548,7 @@ class ApplicationWindow(QMainWindow):
             self.indirectSliderUpdate = True
             self.progressSlider.setValue(sliderPosition)
             self.indirectSliderUpdate = False
+        print(f"self.frameIndex at the end {self.frameIndex}")
 
     def runOrStop(self):
         if self.playing:
@@ -718,15 +728,15 @@ class ApplicationWindow(QMainWindow):
                 radarAnnotationPeriod = self.chirpPeriod
                 if self.usesBpm:
                     radarAnnotationPeriod = 3 * self.chirpPeriod
-                print(f"Radar start for current file {startRadar} or {radarAnnotationPeriod} ms")
                 radarStartMs = startRadar * radarAnnotationPeriod
+                print(f"Radar start for current file {startRadar} or {radarStartMs} ms")
             else:
                 print(f"Don't have radar annotations for {self.currentRadarFilename}")
 
             if self.currentVideoFilename in self.videoAnnotations:
                 startVideo = self.videoAnnotations[self.currentVideoFilename]["start"][0]
-                print(f"Video start for current file {startVideo} or {startVideo * self.videoPeriod} ms")
                 cameraStartMs = startVideo * self.videoPeriod
+                print(f"Video start for current file {startVideo} or {cameraStartMs} ms")
             else:
                 print(f"Don't have video annotations for {self.currentVideoFilename}")
         if radarStartMs == -1 or cameraStartMs == -1:
@@ -739,6 +749,8 @@ class ApplicationWindow(QMainWindow):
             else:
                 self.videoStartIndex = 0
                 self.radarStartIndex = (radarStartMs - cameraStartMs) // (self.chirpPeriod * self.radarDataLoader.get_shift_per_sample())
+
+            print(f"self.radarStartIndex {self.radarStartIndex}, self.videoStartIndex {self.videoStartIndex}")
 
     def updateTrackingSensitivity(self, value):
         # TODO: Just pass the new sensitivity to rearrange thresholds without clearing the tracking state
