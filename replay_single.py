@@ -30,6 +30,7 @@ import util.drawer as drawer
 from PyQt5 import QtCore, QtGui
 from PyQt5.QtWidgets import *
 from threading import Thread
+import math
 
 RETRY_PERIOD = 250 # ms
 
@@ -54,6 +55,171 @@ def load_intermediate(instance):
     instance.radarDataLoader.logLevel = 3
 
     instance.totalRadarFrames = instance.radarDataLoader.get_total_samples()
+
+# Original implementation taken from:
+# https://stackoverflow.com/questions/63698714/how-to-show-markings-on-qdial-in-pyqt5-python
+# and extended.
+class ValueDial(QWidget):
+    _dialProperties = ('minimum', 'maximum', 'value', 'singleStep', 'pageStep',
+        'notchesVisible', 'tracking', 'wrapping', 
+        'invertedAppearance', 'invertedControls', 'orientation')
+    _inPadding = 3
+    _outPadding = 2
+    valueChanged = QtCore.pyqtSignal(int)
+
+    def __init__(self, *args, **kwargs):
+        # remove properties used as keyword arguments for the dial
+        dialArgs = {k:v for k, v in kwargs.items() if k in self._dialProperties}
+        for k in dialArgs.keys():
+            kwargs.pop(k)
+        super().__init__(*args, **kwargs)
+        layout = QVBoxLayout(self)
+        self.dial = QDial(self, **dialArgs)
+        layout.addWidget(self.dial)
+        #self.dial.valueChanged.connect(self.valueChanged)
+        self.dial.valueChanged.connect(self.modifyAndReemit)
+        # make the dial the focus proxy (so that it captures focus *and* key events)
+        self.setFocusProxy(self.dial)
+
+        # simple "monkey patching" to access dial functions
+        self.value = self.dial.value
+        #self.setValue = self.dial.setValue
+        self.minimum = self.dial.minimum
+        self.maximum = self.dial.maximum
+        self.wrapping = self.dial.wrapping
+        self.notchesVisible = self.dial.notchesVisible
+        self.setNotchesVisible = self.dial.setNotchesVisible
+        self.setNotchTarget = self.dial.setNotchTarget
+        self.notchSize = self.dial.notchSize
+        self.invertedAppearance = self.dial.invertedAppearance
+        self.setInvertedAppearance = self.dial.setInvertedAppearance
+        self.showLogarithmic = False
+        self.updateSize()
+
+    def modifyAndReemit(self, value):
+        if self.showLogarithmic and value:
+            absoluteValue = abs(value)
+            transformed = (int)(math.pow(10, absoluteValue / 10.0))
+            if value > 0:
+                self.valueChanged.emit(transformed)
+            else:
+                self.valueChanged.emit(-transformed)
+        else:
+            # Send without modifications
+            self.valueChanged.emit(value)
+
+    def inPadding(self):
+        return self._inPadding
+
+    def setInPadding(self, padding):
+        self._inPadding = max(0, padding)
+        self.updateSize()
+
+    def outPadding(self):
+        return self._outPadding
+
+    def setOutPadding(self, padding):
+        self._outPadding = max(0, padding)
+        self.updateSize()
+
+    # the following functions are required to correctly update the layout
+    def setMinimum(self, minimum):
+        self.dial.setMinimum(minimum)
+        self.updateSize()
+
+    def setMaximum(self, maximum):
+        self.dial.setMaximum(maximum)
+        self.updateSize()
+
+    def setValue(self, value):
+        if self.showLogarithmic and value:
+            absoluteValue = abs(value)
+            transformed = 10 * math.log10(value)
+            self.dial.setValue(transformed)
+        else:
+            self.dial.setValue(value)
+
+    def setWrapping(self, wrapping):
+        self.dial.setWrapping(wrapping)
+        self.updateSize()
+    
+    def setShowLogarithmic(self, state):
+        self.showLogarithmic = state
+
+    def updateSize(self):
+        # a function that sets the margins to ensure that the value strings always
+        # have enough space
+        fm = self.fontMetrics()
+        minWidth = max(fm.width(str(v)) for v in range(self.minimum(), self.maximum() + 1))
+        self.offset = max(minWidth, fm.height()) / 2
+        margin = self.offset + self._inPadding + self._outPadding
+        self.layout().setContentsMargins(margin, margin, margin, margin)
+
+    def translateMouseEvent(self, event):
+        # a helper function to translate mouse events to the dial
+        return QtGui.QMouseEvent(event.type(), 
+            self.dial.mapFrom(self, event.pos()), 
+            event.button(), event.buttons(), event.modifiers())
+
+    def changeEvent(self, event):
+        if event.type() == QtCore.QEvent.FontChange:
+            self.updateSize()
+
+    def mousePressEvent(self, event):
+        self.dial.mousePressEvent(self.translateMouseEvent(event))
+
+    def mouseMoveEvent(self, event):
+        self.dial.mouseMoveEvent(self.translateMouseEvent(event))
+
+    def mouseReleaseEvent(self, event):
+        self.dial.mouseReleaseEvent(self.translateMouseEvent(event))
+
+    def paintEvent(self, event):
+        radius = min(self.width(), self.height()) / 2
+        radius -= (self.offset / 2 + self._outPadding)
+        invert = -1 if self.invertedAppearance() else 1
+        if self.wrapping():
+            angleRange = 360
+            startAngle = 270
+            rangeOffset = 0
+        else:
+            angleRange = 300
+            startAngle = 240 if invert > 0 else 300
+            rangeOffset = 1
+        fm = self.fontMetrics()
+
+        # a reference line used for the target of the text rectangle
+        reference = QtCore.QLineF.fromPolar(radius, 0).translated(self.rect().center())
+        fullRange = self.maximum() - self.minimum()
+        textRect = QtCore.QRect()
+
+        qp = QtGui.QPainter(self)
+        qp.setRenderHints(qp.Antialiasing)
+        totalVisibleNotches = (int)(fullRange + rangeOffset) / self.notchSize()
+        notchMultiplier = 1
+        if totalVisibleNotches > 10:
+            notchMultiplier = (int)((totalVisibleNotches + 10) / 10)
+        for p in range(0, fullRange + rangeOffset, notchMultiplier * self.notchSize()):
+            value = self.minimum() + p
+            if invert < 0:
+                value -= 1
+                if value < self.minimum():
+                    continue
+
+            if self.showLogarithmic and value:
+                absoluteValue = abs(value)
+                transformed = (int)(math.pow(10, absoluteValue / 10.0))
+                if value > 0:
+                    value = transformed
+                else:
+                    value = -transformed
+
+            angle = p / fullRange * angleRange * invert
+            reference.setAngle(startAngle - angle)
+            textRect.setSize(fm.size(QtCore.Qt.TextSingleLine, str(value)))
+            textRect.moveCenter(reference.p2().toPoint())
+            qp.drawText(textRect, QtCore.Qt.AlignCenter, str(value))
+
 
 # A custom class for the image area. Maybe we can use Qt drawing primitives instead of OpenCV
 class CustomImage(QWidget):
@@ -139,7 +305,6 @@ class ApplicationWindow(QMainWindow):
     def videoIndexFromRadar(self, radarIndex):
         radarIndex = max(radarIndex, self.radarStartIndex)
         print(f"radarIndex {radarIndex}, self.radarStartIndex {self.radarStartIndex}, self.videoStartIndex {self.videoStartIndex}, video index {(radarIndex - self.radarStartIndex) * self.chirpPeriod // self.videoPeriod + self.videoStartIndex}")
-        print(f"at original radar index 504 video should be 382")
         return (radarIndex - self.radarStartIndex) * self.chirpPeriod \
             // self.videoPeriod + self.videoStartIndex
 
@@ -398,7 +563,13 @@ class ApplicationWindow(QMainWindow):
 
         # TODO: Check about -1, what if we calculate 0?
         videoFrameIndex = self.videoIndexFromRadar((self.frameIndex + 1)*self.radarDataLoader.get_shift_per_sample())
-        self.video.set(cv2.CAP_PROP_POS_FRAMES, videoFrameIndex - 1)
+        if videoFrameIndex - 1 < self.video.get(cv2.CAP_PROP_FRAME_COUNT):
+            self.video.set(cv2.CAP_PROP_POS_FRAMES, videoFrameIndex - 1)
+        else:
+            self.frameIndex = 0
+            self.radarDataLoader.set_frame_index(frameIndex)
+            videoFrameIndex = self.videoIndexFromRadar((self.frameIndex + 1)*self.radarDataLoader.get_shift_per_sample())
+            self.video.set(cv2.CAP_PROP_POS_FRAMES, videoFrameIndex - 1)
         #self.video.set(cv2.CAP_PROP_POS_FRAMES, self.frameIndex - 1)
         
         self.update()
@@ -430,8 +601,6 @@ class ApplicationWindow(QMainWindow):
         if not self.video or not self.video.isOpened() and not self.usingIntermediate:
             return
 
-        print(f"self.frameIndex at the start {self.frameIndex}")
-
         gtCenters = []
         if self.usingIntermediate:
             RAD, gt, frame = next(self.radarDataLoader.yield_next_data())
@@ -443,7 +612,7 @@ class ApplicationWindow(QMainWindow):
             ret = True
         else:
             ret, frame = self.video.read()
-            
+
         if not ret:
             if self.frameIndex > self.totalRadarFrames and self.totalRadarFrames:
                 self.frameIndex = self.totalRadarFrames - 1
@@ -452,6 +621,7 @@ class ApplicationWindow(QMainWindow):
                 self.runOrStop()
                 if not ret:
                     return # Still failing
+
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         dim = (int(frame.shape[1] / 4), int(frame.shape[0] / 4))
 
@@ -574,9 +744,23 @@ class ApplicationWindow(QMainWindow):
         self.progressSlider = QSlider(QtCore.Qt.Horizontal, parent=self.controls)
         self.progressSlider.sliderMoved[int].connect(self.updateSlider)
 
-        self.trackingSensitivitySlider = QSlider(QtCore.Qt.Horizontal, self.controls)
+        #self.trackingSensitivitySlider = QSlider(QtCore.Qt.Horizontal, self.controls)
+        self.trackingSensitivitySlider = ValueDial(minimum=0, maximum=100)
+        self.trackingSensitivitySlider.setNotchesVisible(True)
         self.trackingSensitivitySlider.setValue(90)
         self.trackingSensitivitySlider.valueChanged.connect(self.updateTrackingSensitivity)
+        self.trackingSensitivitySlider.setEnabled(False)
+
+        # TODO: The user min/max directly as he wants (-10000/10000 in this case) regardless
+        # if he intends to use setShowLogarithmic() or not.
+        #self.radarDelaySlider = ValueDial(minimum=-40, maximum=40)
+        #self.radarDelaySlider.setShowLogarithmic(True)
+        self.radarDelaySlider = ValueDial(minimum=-5000, maximum=5000)
+
+        self.radarDelaySlider.setNotchesVisible(True)
+        self.radarDelaySlider.setValue(0)
+        self.radarDelaySlider.valueChanged.connect(self.updateSynchronizationUser)
+        self.radarDelaySlider.setEnabled(False)
 
         self.isBpmBox = QCheckBox('Is BPM', parent=self.controls)
         self.isBpmBox.setChecked(True)
@@ -596,7 +780,10 @@ class ApplicationWindow(QMainWindow):
         self.viewGroup.addButton(self.sideViewRadio)
 
         self.trackingSensitivityLabel = QLabel(self.controls)
-        self.trackingSensitivityLabel.setText('Tracking sensitivity')
+        self.trackingSensitivityLabel.setText('Tracking sensitivity 90%')
+
+        self.radarDelayLabel = QLabel(self.controls)
+        self.radarDelayLabel.setText('Radar start delay (0 ms)')
 
         controlsLayout.addWidget(self.progressSlider, 0, 0, 1, 13)
         controlsLayout.addWidget(self.jumpBackButton, 1, 0)
@@ -605,7 +792,10 @@ class ApplicationWindow(QMainWindow):
         controlsLayout.addWidget(self.forwardButton, 1, 3)
         controlsLayout.addWidget(self.jumpForwardButton, 1, 4)
         controlsLayout.addWidget(self.trackingSensitivityLabel, 1, 6)
-        controlsLayout.addWidget(self.trackingSensitivitySlider, 1, 7, 1, 3)
+        #controlsLayout.addWidget(self.trackingSensitivitySlider, 1, 7, 1, 3)
+        controlsLayout.addWidget(self.trackingSensitivitySlider, 1, 7)
+        controlsLayout.addWidget(self.radarDelayLabel, 1, 8)
+        controlsLayout.addWidget(self.radarDelaySlider, 1, 9)
         controlsLayout.addWidget(self.topViewRadio, 1, 11)
         controlsLayout.addWidget(self.sideViewRadio, 2, 11)
         controlsLayout.addWidget(self.isBpmBox, 1, 12)
@@ -628,6 +818,9 @@ class ApplicationWindow(QMainWindow):
         if value:
             print(f"Creating a tracker with sensitivity {self.trackingSensitivitySlider.value() / 100.0}")
             self.tracker = Tracker(self.trackingSensitivitySlider.value() / 100.0)
+            self.trackingSensitivitySlider.setEnabled(True)
+        else:
+            self.trackingSensitivitySlider.setEnabled(False)
 
     def disablePlaying(self):
         self.jumpBackButton.setDisabled(True)
@@ -741,8 +934,10 @@ class ApplicationWindow(QMainWindow):
                 print(f"Don't have video annotations for {self.currentVideoFilename}")
         if radarStartMs == -1 or cameraStartMs == -1:
             print("Couldn't find one of the annotations. Can't synchronize")
+            self.radarDelaySlider.setEnabled(True)
         else:
             print(f"radarStartMs {radarStartMs} ms, cameraStartMs {cameraStartMs} ms")
+            self.radarDelaySlider.setEnabled(False)
             if cameraStartMs >= radarStartMs:
                 self.radarStartIndex = 0
                 self.videoStartIndex = (cameraStartMs - radarStartMs) // self.videoPeriod
@@ -752,10 +947,34 @@ class ApplicationWindow(QMainWindow):
 
             print(f"self.radarStartIndex {self.radarStartIndex}, self.videoStartIndex {self.videoStartIndex}")
 
+    # By how much radar trails the video. If negative, all actions on the radar signal happen sooner.
+    def updateSynchronizationUser(self, radarDelayMs: int):
+        print(f"Got delay value from dial {radarDelayMs}")
+
+        self.radarDelayLabel.setText(f'Radar start delay ({radarDelayMs} ms)')
+        cameraStartMs = 0
+        radarStartMs = radarDelayMs
+        if radarStartMs < 0:
+            cameraStartMs = -radarStartMs
+            radarStartMs = 0
+
+        if cameraStartMs >= radarStartMs:
+            self.radarStartIndex = 0
+            self.videoStartIndex = (cameraStartMs - radarStartMs) // self.videoPeriod
+            print("cameraStartMs >= radarStartMs")
+        else:
+            self.videoStartIndex = 0
+            print("radarStartMs >= cameraStartMs")
+            if self.radarDataLoader != None:
+                self.radarStartIndex = (radarStartMs - cameraStartMs) // (self.chirpPeriod * self.radarDataLoader.get_shift_per_sample())
+        print(f"self.radarStartIndex {self.radarStartIndex}, self.videoStartIndex {self.videoStartIndex}")
+
     def updateTrackingSensitivity(self, value):
         # TODO: Just pass the new sensitivity to rearrange thresholds without clearing the tracking state
         print(f"Creating a tracker with sensitivity {self.trackingSensitivitySlider.value() / 100.0}")
         self.tracker = Tracker(self.trackingSensitivitySlider.value() / 100.0)
+
+        self.trackingSensitivityLabel.setText(f'Tracking sensitivity {self.trackingSensitivitySlider.value()}%')
 
 
 c = 0.3 # Speed of light
