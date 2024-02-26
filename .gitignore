@@ -6,6 +6,8 @@ model/__pycache__
 util/__pycache__
 images/inference_plots
 images/samples
+venv
+__pycache__
 logs
 *.txt
 *.npy
