@@ -152,7 +152,7 @@ class ValueDial(QWidget):
         fm = self.fontMetrics()
         minWidth = max(fm.width(str(v)) for v in range(self.minimum(), self.maximum() + 1))
         self.offset = max(minWidth, fm.height()) / 2
-        margin = self.offset + self._inPadding + self._outPadding
+        margin = int(self.offset + self._inPadding + self._outPadding)
         self.layout().setContentsMargins(margin, margin, margin, margin)
 
     def translateMouseEvent(self, event):
