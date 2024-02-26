@@ -349,10 +349,15 @@ class ApplicationWindow(QMainWindow):
                 self.hasVideoAnnotations = True
 
     def loadDefaultSynchronizationData(self):
-        with open("annotated.json", 'r') as f:
+        current_dir = os.path.dirname(os.path.realpath(__file__))
+        video_annotations_path = os.path.join(current_dir, 'PositionFromArucoVideo', 'annotated.json')
+        radar_annotations_path = os.path.join(current_dir, 'PositionFromArucoVideo', 'radar_annotated.json')
+
+        with open(video_annotations_path, 'r') as f:
             self.videoAnnotations = json.load(f)
             self.hasVideoAnnotations = True
-        with open("radar_annotated.json", 'r') as f:
+
+        with open(radar_annotations_path, 'r') as f:
             self.radarAnnotations = json.load(f)
             self.hasRadarAnnotations = True
 
